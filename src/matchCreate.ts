@@ -1,13 +1,8 @@
-import * as express from "express";
 import * as admin from "firebase-admin";
 import { between } from "./between";
 import { Match, MatchPlayerIds } from "./Match";
+import { queueSubject } from "./queueSubject";
 
-admin.initializeApp({
-  credential: admin.credential.applicationDefault(),
-});
-
-const app = express();
 const matches = new Map<string, Match>();
 
 interface CreateMatchDocResult {
@@ -18,31 +13,29 @@ interface CreateMatchDocResult {
 const createMatchDoc = async (
   transaction: admin.firestore.Transaction
 ): Promise<CreateMatchDocResult> => {
-  const db = admin.firestore();
-  const playersQueueEntriesRef = db
-    .collection("queueEntries")
-    .orderBy("orderToken")
-    .limit(10);
-  const playersQueueEntries = await transaction.get(playersQueueEntriesRef);
+  const playersQueueEntries = Array.from(queueSubject.getValue().entries())
+    .sort((entryA, entryB) => entryA[1].orderToken - entryB[1].orderToken)
+    .slice(0, 10);
 
-  const matchRef = db.collection("matches").doc();
-  const matchDoc = {
-    first: { playerId: playersQueueEntries.docs[0]!.id },
-    second: { playerId: playersQueueEntries.docs[1]!.id },
-    third: { playerId: playersQueueEntries.docs[2]!.id },
-    fourth: { playerId: playersQueueEntries.docs[3]!.id },
-    fifth: { playerId: playersQueueEntries.docs[4]!.id },
-    sixth: { playerId: playersQueueEntries.docs[5]!.id },
-    seventh: { playerId: playersQueueEntries.docs[6]!.id },
-    eighth: { playerId: playersQueueEntries.docs[7]!.id },
-    ninth: { playerId: playersQueueEntries.docs[8]!.id },
-    tenth: { playerId: playersQueueEntries.docs[9]!.id },
+  const matchPlayerIds = {
+    first: { playerId: playersQueueEntries[0]![0] },
+    second: { playerId: playersQueueEntries[1]![0] },
+    third: { playerId: playersQueueEntries[2]![0] },
+    fourth: { playerId: playersQueueEntries[3]![0] },
+    fifth: { playerId: playersQueueEntries[4]![0] },
+    sixth: { playerId: playersQueueEntries[5]![0] },
+    seventh: { playerId: playersQueueEntries[6]![0] },
+    eighth: { playerId: playersQueueEntries[7]![0] },
+    ninth: { playerId: playersQueueEntries[8]![0] },
+    tenth: { playerId: playersQueueEntries[9]![0] },
   };
-  transaction.set(matchRef, matchDoc);
 
-  for (const playerQueueEntry of playersQueueEntries.docs) {
-    transaction.delete(playerQueueEntry.ref);
-    transaction.set(
+  for (const playerQueueEntry of playersQueueEntries) {
+    const queue = queueSubject.getValue();
+    const nextQueue = new Map(queue);
+
+    nextQueue.delete(playerQueueEntry[0]);
+    nextQueue.set(
       db.collection("players").doc(playerQueueEntry.id),
       { inMatch: matchRef.id },
       { merge: true }
@@ -100,22 +93,14 @@ const promoteQueueEntries = async (
   return null;
 };
 
-const createMatchDocIfEnoughPlayers = () => {
-  const db = admin.firestore();
-  return db.runTransaction(async (transaction) => {
-    const generalRef = db.collection("general").doc("general");
-    const generalSnapshot = await transaction.get(generalRef);
-    const general = generalSnapshot.data();
+const createMatchIfEnoughPlayers = () => {
+  const currentPlayersInQueueCount = queueSubject.getValue().size;
 
-    const currentPlayersInQueueCount: number =
-      general?.playersInQueueCount ?? 0;
-
-    if (currentPlayersInQueueCount >= 10) {
-      return createMatchDoc(transaction);
-    } else {
-      return promoteQueueEntries(transaction);
-    }
-  });
+  if (currentPlayersInQueueCount >= 10) {
+    return createMatchDoc(transaction);
+  } else {
+    return promoteQueueEntries(transaction);
+  }
 };
 
 const createMatchIfEnoughPlayers = async () => {
@@ -137,5 +122,3 @@ const createMatchIfEnoughPlayers = async () => {
 
   matches.set(result.matchId, match);
 };
-
-app.post("/create-match", createMatchIfEnoughPlayers);

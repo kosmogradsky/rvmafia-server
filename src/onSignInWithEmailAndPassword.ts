@@ -1,31 +1,32 @@
 import * as jwt from "jsonwebtoken";
 import * as bcrypt from "bcrypt";
 import { Socket } from "socket.io";
-import { db } from "./db";
 import { Session } from "./Session";
 import { sessionIdSecret } from "./sessionIdSecret";
 import { Connection } from "./Connection";
+import { Db } from "mongodb";
 
 export const onSignInWithEmailAndPassword = (
   socket: Socket,
   sessions: Map<string, Session>,
-  connection: Connection
+  connection: Connection,
+  db: Db
 ) => {
   socket.on(
     "sign in with email and password",
     async (email, password): Promise<void> => {
-      const userRow = await db("users").where({ email }).first();
+      const userDoc = await db.collection("users").findOne({ email });
 
-      console.log(userRow);
+      console.log(userDoc);
 
-      if (userRow === undefined) {
+      if (userDoc === undefined) {
         socket.emit("login error", "WRONG_EMAIL_OR_PASSWORD");
         return;
       }
 
       const isPasswordCorrect = await bcrypt.compare(
         password,
-        userRow.hashedPassword
+        userDoc.hashedPassword
       );
 
       if (isPasswordCorrect === false) {
@@ -35,9 +36,11 @@ export const onSignInWithEmailAndPassword = (
 
       const session = sessions.get(connection.sessionId);
       if (session === undefined) {
-        sessions.set(connection.sessionId, { userId: userRow.id });
+        sessions.set(connection.sessionId, {
+          userId: userDoc._id.toHexString(),
+        });
       } else {
-        session.userId = userRow.id;
+        session.userId = userDoc._id.toHexString();
       }
 
       jwt.sign(connection.sessionId, sessionIdSecret, (_err, sessionToken) => {

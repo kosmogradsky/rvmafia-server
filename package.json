@@ -13,10 +13,12 @@
     "jsonwebtoken": "^8.5.1",
     "knex": "^0.95.6",
     "kurento-client": "^6.16.0",
+    "mongodb": "4.0.0-beta.5",
     "nanoid": "^3.1.23",
     "pusher": "^5.0.0",
     "rxjs": "^7.1.0",
     "socket.io": "^4.1.2",
+    "source-map-support": "^0.5.19",
     "sqlite3": "^5.0.2",
     "uuid": "^8.3.2",
     "ws": "^7.4.6"

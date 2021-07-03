@@ -1,10 +1,9 @@
 import * as bcrypt from "bcrypt";
 import * as EmailValidator from "email-validator";
-import { nanoid } from "nanoid";
+import { Db } from "mongodb";
 import { Socket } from "socket.io";
-import { db } from "./db";
 
-export const onRegister = (socket: Socket) => {
+export const onRegister = (socket: Socket, db: Db) => {
   socket.on("register", async (email, password): Promise<void> => {
     if (typeof email !== "string") {
       socket.emit("registration error", "EMAIL_MUST_BE_STRING");
@@ -28,8 +27,7 @@ export const onRegister = (socket: Socket) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const uid = nanoid();
-    await db("users").insert({ uid, email, hashedPassword });
+    await db.collection("users").insertOne({ email, hashedPassword });
 
     socket.emit("registration success");
   });
