@@ -279,7 +279,7 @@ async function register(
   return { type: "RegisterSuccess", data: null };
 }
 
-export function main(sources: Sources): Observable<OutcomingCommand> {
+export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
   function createAuthenticatedMessage$(outcoming: {
     type: string;
     data: { authSessionId: string; userId: string };
@@ -420,7 +420,7 @@ async function mongoMain() {
   const messageSubject = new Subject<IncomingMessage>();
   const message$: Observable<IncomingMessage> = messageSubject.asObservable();
 
-  main({
+  rxSocketProto({
     db,
     message$,
   }).subscribe(async (message) => {

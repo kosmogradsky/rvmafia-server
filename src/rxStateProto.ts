@@ -12,7 +12,7 @@ export class QueueEntry {
   }
 }
 
-export function main(incoming$: Observable<ChangeStateRequest>) {
+export function rxStateProto(incoming$: Observable<ChangeStateRequest>) {
   return incoming$.pipe(
     scan((acc, message): Map<string, QueueEntry> => {
       switch (message.type) {
