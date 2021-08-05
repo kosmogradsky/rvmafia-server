@@ -1,34 +1,37 @@
 import { Observable } from "rxjs";
 import { scan } from "rxjs/operators";
 import { ChangeStateRequest } from "./ChangeStateRequest";
+import { QueueEntry } from "./QueueEntry";
+import { QueueStateEvent, StateEvent } from "./StateEvent";
 
-export class QueueEntry {
-  readonly orderToken: number;
-  readonly orderTokenRange: number;
-
-  constructor(orderTokenRange: number = 1024) {
-    this.orderToken = Math.ceil(Math.random() * orderTokenRange);
-    this.orderTokenRange = orderTokenRange;
-  }
-}
-
-export function rxStateProto(incoming$: Observable<ChangeStateRequest>) {
+export function rxStateProto(
+  incoming$: Observable<ChangeStateRequest>
+): Observable<StateEvent> {
   return incoming$.pipe(
-    scan((acc, message): Map<string, QueueEntry> => {
-      switch (message.type) {
-        case "AddQueueEntry": {
-          const nextAcc = new Map(acc);
-          nextAcc.set(message.userId, new QueueEntry());
+    scan(
+      (acc, message): QueueStateEvent => {
+        switch (message.type) {
+          case "AddQueueEntry": {
+            const nextState = new Map(acc.state);
+            nextState.set(message.userId, new QueueEntry());
 
-          return nextAcc;
-        }
-        case "RemoveQueueEntry": {
-          const nextAcc = new Map(acc);
-          nextAcc.delete(message.userId);
+            return {
+              type: "QueueStateEvent",
+              state: nextState,
+            };
+          }
+          case "RemoveQueueEntry": {
+            const nextState = new Map(acc.state);
+            nextState.delete(message.userId);
 
-          return nextAcc;
+            return {
+              type: "QueueStateEvent",
+              state: nextState,
+            };
+          }
         }
-      }
-    }, new Map<string, QueueEntry>())
+      },
+      { type: "QueueStateEvent", state: new Map<string, QueueEntry>() }
+    )
   );
 }
