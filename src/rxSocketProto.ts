@@ -31,6 +31,7 @@ export interface SignInWithEmailAndPasswordSuccess {
   authSessionToken: string;
   authSessionId: string;
   userId: string;
+  userEmail: string;
 }
 
 export interface SignInWithEmailAndPasswordError {
@@ -73,6 +74,7 @@ export interface SignInWithAuthSessionTokenSuccess {
   type: "SignInWithAuthSessionTokenSuccess";
   authSessionId: string;
   userId: string;
+  userEmail: string;
 }
 
 export type SignInWithAuthSessionTokenOutcoming =
@@ -109,12 +111,12 @@ export type IncomingMessage =
   | SubscribeToQueueLength
   | UnsubscribeFromQueueLength;
 
-export interface SignOutSuccess {
-  type: "SignOutSuccess";
-}
-
-export interface SignInSuccess {
-  type: "SignInSuccess";
+export interface AuthStateUpdated {
+  type: "AuthStateUpdated";
+  user: {
+    id: string;
+    email: string;
+  } | null;
 }
 
 export interface QueueLengthUpdated {
@@ -123,8 +125,7 @@ export interface QueueLengthUpdated {
 }
 
 export type OutcomingMessage =
-  | SignOutSuccess
-  | SignInSuccess
+  | AuthStateUpdated
   | SignInWithEmailAndPasswordError
   | SignInWithAuthSessionTokenError
   | RegisterOutcoming
@@ -152,6 +153,7 @@ async function signInWithEmailAndPassword(
   message: SignInWithEmailAndPasswordIncoming,
   db: Db
 ): Promise<SignInWithEmailAndPasswordOutcoming> {
+  
   const userDoc = await db
     .collection("users")
     .findOne({ email: message.email });
@@ -197,6 +199,7 @@ async function signInWithEmailAndPassword(
     authSessionToken,
     authSessionId: insertedSessionId,
     userId: userDoc._id,
+    userEmail: userDoc.email
   };
 }
 
@@ -243,10 +246,15 @@ async function signInWithAuthSessionToken(
     };
   }
 
+  const userDoc = await db
+    .collection("users")
+    .findOne({ _id: authSessionDoc.userId });
+
   return {
     type: "SignInWithAuthSessionTokenSuccess",
     authSessionId,
     userId: authSessionDoc.userId,
+    userEmail: userDoc.email,
   };
 }
 
@@ -295,9 +303,11 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
   function createAuthenticatedMessage$({
     authSessionId,
     userId,
+    userEmail,
   }: {
     authSessionId: string;
     userId: string;
+    userEmail: string;
   }): Observable<OutcomingCommand> {
     return merge(
       sources.message$.pipe(
@@ -311,7 +321,8 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
         mapTo<OutcomingCommand>({
           type: "SendMessage",
           message: {
-            type: "SignOutSuccess",
+            type: "AuthStateUpdated",
+            user: null,
           },
         })
       ),
@@ -340,7 +351,11 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
         startWith<OutcomingCommand>({
           type: "SendMessage",
           message: {
-            type: "SignInSuccess",
+            type: "AuthStateUpdated",
+            user: {
+              id: userId,
+              email: userEmail,
+            },
           },
         }),
         takeUntil(

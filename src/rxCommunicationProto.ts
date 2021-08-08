@@ -109,8 +109,8 @@ async function rxCommunicationProto() {
           console.log("SendMessage", outcomingCommand);
 
           switch (outcomingCommand.message.type) {
-            case "SignInSuccess": {
-              socket.emit("sign in success");
+            case "AuthStateUpdated": {
+              socket.emit("auth state updated", outcomingCommand.message.user);
               break;
             }
             case "QueueLengthUpdated": {
@@ -143,9 +143,6 @@ async function rxCommunicationProto() {
                 outcomingCommand.message.description
               );
             }
-            case "SignOutSuccess": {
-              socket.emit("sign out success");
-            }
           }
 
           break;
@@ -154,3 +151,5 @@ async function rxCommunicationProto() {
     });
   });
 }
+
+rxCommunicationProto();
