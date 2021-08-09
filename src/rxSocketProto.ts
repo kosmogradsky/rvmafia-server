@@ -124,12 +124,17 @@ export interface QueueLengthUpdated {
   updatedLength: number;
 }
 
+export interface SignInWithEmailAndPasswordOutcomingSuccess {
+  type: "SignInWithEmailAndPasswordOutcomingSuccess";
+}
+
 export type OutcomingMessage =
   | AuthStateUpdated
   | SignInWithEmailAndPasswordError
   | SignInWithAuthSessionTokenError
   | RegisterOutcoming
-  | QueueLengthUpdated;
+  | QueueLengthUpdated
+  | SignInWithEmailAndPasswordOutcomingSuccess;
 
 interface ChangeState {
   type: "ChangeState";
@@ -153,7 +158,6 @@ async function signInWithEmailAndPassword(
   message: SignInWithEmailAndPasswordIncoming,
   db: Db
 ): Promise<SignInWithEmailAndPasswordOutcoming> {
-  
   const userDoc = await db
     .collection("users")
     .findOne({ email: message.email });
@@ -199,7 +203,7 @@ async function signInWithEmailAndPassword(
     authSessionToken,
     authSessionId: insertedSessionId,
     userId: userDoc._id,
-    userEmail: userDoc.email
+    userEmail: userDoc.email,
   };
 }
 
@@ -400,7 +404,14 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
                     message: outcoming,
                   });
                 case "SignInWithEmailAndPasswordSuccess":
-                  return createAuthenticatedMessage$(outcoming);
+                  return createAuthenticatedMessage$(outcoming).pipe(
+                    startWith<OutcomingCommand>({
+                      type: "SendMessage",
+                      message: {
+                        type: "SignInWithEmailAndPasswordOutcomingSuccess",
+                      },
+                    })
+                  );
               }
             })
           );

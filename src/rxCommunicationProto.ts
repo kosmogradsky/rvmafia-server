@@ -136,12 +136,18 @@ async function rxCommunicationProto() {
                 "sign in with session token error",
                 outcomingCommand.message.description
               );
+              break;
             }
             case "SignInWithEmailAndPasswordError": {
               socket.emit(
                 "sign in with email and password error",
                 outcomingCommand.message.description
               );
+              break;
+            }
+            case "SignInWithEmailAndPasswordOutcomingSuccess": {
+              socket.emit("sign in with email and password success");
+              break;
             }
           }
 
