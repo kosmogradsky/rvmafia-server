@@ -1,8 +1,19 @@
-import { QueueEntry } from "./QueueEntry";
-
-export interface QueueStateEvent {
-  type: "QueueStateEvent";
-  state: Map<string, QueueEntry>;
+export interface QueueEntryAdded {
+  type: "QueueEntryAdded";
+  userId: string;
 }
 
-export type StateEvent = QueueStateEvent;
+export interface QueueEntryRemoved {
+  type: "QueueEntryRemoved";
+  userId: string;
+}
+
+export interface QueueLengthUpdated {
+  type: "QueueLengthUpdated";
+  updatedLength: number;
+}
+
+export type StateEvent =
+  | QueueEntryAdded
+  | QueueEntryRemoved
+  | QueueLengthUpdated;

@@ -15,7 +15,7 @@ import {
   map,
 } from "rxjs/operators";
 import { ChangeStateRequest } from "./ChangeStateRequest";
-import { StateEvent } from "./StateEvent";
+import { QueueEntryAdded, QueueEntryRemoved, StateEvent } from "./StateEvent";
 
 const sessionIdSecret =
   "j[P{;a^jYRRKWW>>$/}j]+a3-B7n:`wa92Y[`F>{PkzP$atV#DUh98Qgk^_%C%8^";
@@ -128,13 +128,23 @@ export interface SignInWithEmailAndPasswordOutcomingSuccess {
   type: "SignInWithEmailAndPasswordOutcomingSuccess";
 }
 
+export interface QueueEntryAddedOutcoming {
+  type: 'QueueEntryAddedOutcoming'
+}
+
+export interface QueueEntryRemovedOutcoming {
+  type: 'QueueEntryRemovedOutcoming'
+}
+
 export type OutcomingMessage =
   | AuthStateUpdated
   | SignInWithEmailAndPasswordError
   | SignInWithAuthSessionTokenError
   | RegisterOutcoming
   | QueueLengthUpdated
-  | SignInWithEmailAndPasswordOutcomingSuccess;
+  | SignInWithEmailAndPasswordOutcomingSuccess
+  | QueueEntryAddedOutcoming
+  | QueueEntryRemovedOutcoming;
 
 interface ChangeState {
   type: "ChangeState";
@@ -350,6 +360,32 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
               userId,
             },
           })
+        ),
+        sources.stateEvent$.pipe(
+          filter(
+            (message): message is QueueEntryAdded =>
+              message.type === "QueueEntryAdded"
+          ),
+          filter((message) => message.userId === userId),
+          mapTo<OutcomingCommand>({
+            type: 'SendMessage',
+            message: {
+              type: 'QueueEntryAddedOutcoming'
+            }
+          })
+        ),
+        sources.stateEvent$.pipe(
+          filter(
+            (message): message is QueueEntryRemoved =>
+              message.type === "QueueEntryRemoved"
+          ),
+          filter((message) => message.userId === userId),
+          mapTo<OutcomingCommand>({
+            type: 'SendMessage',
+            message: {
+              type: 'QueueEntryRemovedOutcoming'
+            }
+          })
         )
       ).pipe(
         startWith<OutcomingCommand>({
@@ -437,13 +473,16 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     filter((message) => message.type === "SubscribeToQueueLength"),
     exhaustMap(() =>
       sources.stateEvent$.pipe(
-        filter((stateEvent) => stateEvent.type === "QueueStateEvent"),
+        filter(
+          (stateEvent): stateEvent is QueueLengthUpdated =>
+            stateEvent.type === "QueueLengthUpdated"
+        ),
         map(
           (stateEvent): OutcomingCommand => ({
             type: "SendMessage",
             message: {
               type: "QueueLengthUpdated",
-              updatedLength: stateEvent.state.size,
+              updatedLength: stateEvent.updatedLength,
             },
           })
         ),
