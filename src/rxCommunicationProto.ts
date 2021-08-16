@@ -149,6 +149,13 @@ async function rxCommunicationProto() {
               socket.emit("sign in with email and password success");
               break;
             }
+            case "EnteredQueue": {
+              socket.emit("entered queue");
+              break;
+            }
+            case "ExitedQueue": {
+              socket.emit("exited queue");
+            }
           }
 
           break;

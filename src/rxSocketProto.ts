@@ -128,12 +128,12 @@ export interface SignInWithEmailAndPasswordOutcomingSuccess {
   type: "SignInWithEmailAndPasswordOutcomingSuccess";
 }
 
-export interface QueueEntryAddedOutcoming {
-  type: 'QueueEntryAddedOutcoming'
+export interface EnteredQueue {
+  type: 'EnteredQueue'
 }
 
-export interface QueueEntryRemovedOutcoming {
-  type: 'QueueEntryRemovedOutcoming'
+export interface ExitedQueue {
+  type: 'ExitedQueue'
 }
 
 export type OutcomingMessage =
@@ -143,8 +143,8 @@ export type OutcomingMessage =
   | RegisterOutcoming
   | QueueLengthUpdated
   | SignInWithEmailAndPasswordOutcomingSuccess
-  | QueueEntryAddedOutcoming
-  | QueueEntryRemovedOutcoming;
+  | EnteredQueue
+  | ExitedQueue;
 
 interface ChangeState {
   type: "ChangeState";
@@ -370,7 +370,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           mapTo<OutcomingCommand>({
             type: 'SendMessage',
             message: {
-              type: 'QueueEntryAddedOutcoming'
+              type: 'EnteredQueue'
             }
           })
         ),
@@ -383,7 +383,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           mapTo<OutcomingCommand>({
             type: 'SendMessage',
             message: {
-              type: 'QueueEntryRemovedOutcoming'
+              type: 'ExitedQueue'
             }
           })
         )
