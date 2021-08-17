@@ -15,7 +15,13 @@ import {
   map,
 } from "rxjs/operators";
 import { ChangeStateRequest } from "./ChangeStateRequest";
-import { QueueEntryAdded, QueueEntryRemoved, StateEvent } from "./StateEvent";
+import {
+  GotQueueLength,
+  QueueEntryAdded,
+  QueueEntryRemoved,
+  StateEvent,
+} from "./StateEvent";
+import { nanoid } from "nanoid/non-secure";
 
 const sessionIdSecret =
   "j[P{;a^jYRRKWW>>$/}j]+a3-B7n:`wa92Y[`F>{PkzP$atV#DUh98Qgk^_%C%8^";
@@ -101,7 +107,25 @@ export interface UnsubscribeFromQueueLength {
   type: "UnsubscribeFromQueueLength";
 }
 
+export interface GetQueueLengthIncoming {
+  type: "GetQueueLengthIncoming";
+}
+
+export interface GetIsQueueingIncoming {
+  type: "GetIsQueueingIncoming";
+}
+
+export interface ConnectedIncoming {
+  type: "ConnectedIncoming";
+}
+
+export interface DisconnectedIncoming {
+  type: "DisconnectedIncoming";
+}
+
 export type IncomingMessage =
+  | ConnectedIncoming
+  | DisconnectedIncoming
   | RegisterIncoming
   | SignInWithEmailAndPasswordIncoming
   | SignInWithAuthSessionTokenIncoming
@@ -109,7 +133,9 @@ export type IncomingMessage =
   | EnterQueue
   | ExitQueue
   | SubscribeToQueueLength
-  | UnsubscribeFromQueueLength;
+  | UnsubscribeFromQueueLength
+  | GetQueueLengthIncoming
+  | GetIsQueueingIncoming;
 
 export interface AuthStateUpdated {
   type: "AuthStateUpdated";
@@ -129,11 +155,11 @@ export interface SignInWithEmailAndPasswordOutcomingSuccess {
 }
 
 export interface EnteredQueue {
-  type: 'EnteredQueue'
+  type: "EnteredQueue";
 }
 
 export interface ExitedQueue {
-  type: 'ExitedQueue'
+  type: "ExitedQueue";
 }
 
 export type OutcomingMessage =
@@ -314,6 +340,8 @@ async function register(
 }
 
 export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
+  const stateRequestId = nanoid();
+
   function createAuthenticatedMessage$({
     authSessionId,
     userId,
@@ -368,10 +396,10 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           ),
           filter((message) => message.userId === userId),
           mapTo<OutcomingCommand>({
-            type: 'SendMessage',
+            type: "SendMessage",
             message: {
-              type: 'EnteredQueue'
-            }
+              type: "EnteredQueue",
+            },
           })
         ),
         sources.stateEvent$.pipe(
@@ -381,10 +409,10 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           ),
           filter((message) => message.userId === userId),
           mapTo<OutcomingCommand>({
-            type: 'SendMessage',
+            type: "SendMessage",
             message: {
-              type: 'ExitedQueue'
-            }
+              type: "ExitedQueue",
+            },
           })
         )
       ).pipe(
@@ -495,7 +523,43 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     )
   );
 
-  return merge(authGuardedEvent$, queueLengthEvent$);
+  const getQueueLength$ = sources.message$.pipe(
+    filter(
+      (message): message is GetQueueLengthIncoming =>
+        message.type === "GetQueueLengthIncoming"
+    ),
+    mapTo<OutcomingCommand>({
+      type: "ChangeState",
+      request: {
+        type: "GetQueueLength",
+        requestId: stateRequestId,
+      },
+    })
+  );
+
+  const gotQueueLength$ = sources.stateEvent$.pipe(
+    filter(
+      (stateEvent): stateEvent is GotQueueLength =>
+        stateEvent.type === "GotQueueLength"
+    ),
+    filter((stateEvent) => stateEvent.requestId === stateRequestId),
+    map(
+      (stateEvent): OutcomingCommand => ({
+        type: "SendMessage",
+        message: {
+          type: "QueueLengthUpdated",
+          updatedLength: stateEvent.updatedLength,
+        },
+      })
+    )
+  );
+
+  return merge(
+    authGuardedEvent$,
+    queueLengthEvent$,
+    getQueueLength$,
+    gotQueueLength$
+  );
 }
 
 // @ts-ignore

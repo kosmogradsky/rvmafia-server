@@ -95,6 +95,18 @@ async function rxCommunicationProto() {
       });
     });
 
+    socket.on("get queue length", () => {
+      messageSubject.next({
+        type: "GetQueueLengthIncoming",
+      });
+    });
+
+    socket.on("get is queueing", () => {
+      messageSubject.next({
+        type: "GetIsQueueingIncoming",
+      });
+    });
+
     rxSocketProto({
       db,
       message$,

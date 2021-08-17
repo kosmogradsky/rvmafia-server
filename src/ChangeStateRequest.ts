@@ -8,4 +8,18 @@ export interface RemoveQueueEntry {
   userId: string;
 }
 
-export type ChangeStateRequest = AddQueueEntry | RemoveQueueEntry;
+export interface GetQueueLength {
+  type: "GetQueueLength";
+  requestId: string;
+}
+
+export interface GetIsQueueing {
+  type: 'GetIsQueueing';
+  userId: string;
+}
+
+export type ChangeStateRequest =
+  | AddQueueEntry
+  | RemoveQueueEntry
+  | GetQueueLength
+  | GetIsQueueing;

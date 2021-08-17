@@ -11,8 +11,10 @@ import {
   ChangeStateRequest,
   RemoveQueueEntry,
   AddQueueEntry,
+  GetQueueLength,
 } from "./ChangeStateRequest";
 import {
+  GotQueueLength,
   QueueEntryAdded,
   QueueEntryRemoved,
   QueueLengthUpdated,
@@ -55,13 +57,24 @@ export function rxStateProto(
     })
   );
 
-  const queueLengthInitialEvent: QueueLengthUpdated = {
+  const queueLengthInitialEvent: QueueLengthUpdated | GotQueueLength = {
     type: "QueueLengthUpdated",
     updatedLength: 0,
   };
 
-  const queueLengthEvent$ = queueEntryLifecycleEvent$.pipe(
-    scan((prevEvent, lifecycleEvent): QueueLengthUpdated => {
+  const queueLengthEvent$ = merge(
+    queueEntryLifecycleEvent$,
+    incoming$.pipe(
+      filter(
+        (message): message is GetQueueLength =>
+          message.type === "GetQueueLength"
+      )
+    )
+  ).pipe(
+    scan<
+      GetQueueLength | QueueEntryRemoved | QueueEntryAdded,
+      QueueLengthUpdated | GotQueueLength
+    >((prevEvent, lifecycleEvent): QueueLengthUpdated | GotQueueLength => {
       switch (lifecycleEvent.type) {
         case "QueueEntryAdded":
           return {
@@ -72,6 +85,12 @@ export function rxStateProto(
           return {
             type: "QueueLengthUpdated",
             updatedLength: prevEvent.updatedLength - 1,
+          };
+        case "GetQueueLength":
+          return {
+            type: "GotQueueLength",
+            requestId: lifecycleEvent.requestId,
+            updatedLength: prevEvent.updatedLength,
           };
       }
     }, queueLengthInitialEvent)
