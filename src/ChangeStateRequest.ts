@@ -14,7 +14,17 @@ export interface GetQueueLength {
 }
 
 export interface GetIsQueueing {
-  type: 'GetIsQueueing';
+  type: "GetIsQueueing";
+  userId: string;
+}
+
+export interface CreateIsQueueing {
+  type: "CreateIsQueueing";
+  userId: string;
+}
+
+export interface DestroyIsQueueing {
+  type: "DestroyIsQueueing";
   userId: string;
 }
 
@@ -22,4 +32,6 @@ export type ChangeStateRequest =
   | AddQueueEntry
   | RemoveQueueEntry
   | GetQueueLength
-  | GetIsQueueing;
+  | GetIsQueueing
+  | CreateIsQueueing
+  | DestroyIsQueueing;

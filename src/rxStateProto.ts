@@ -4,19 +4,23 @@ import {
   map,
   mergeMap,
   scan,
+  share,
   startWith,
   takeUntil,
+  withLatestFrom,
 } from "rxjs/operators";
 import {
   ChangeStateRequest,
   RemoveQueueEntry,
   AddQueueEntry,
   GetQueueLength,
+  CreateIsQueueing,
+  GetIsQueueing,
+  DestroyIsQueueing,
 } from "./ChangeStateRequest";
 import {
   GotQueueLength,
-  QueueEntryAdded,
-  QueueEntryRemoved,
+  QueueingStatusUpdated,
   QueueLengthUpdated,
   StateEvent,
 } from "./StateEvent";
@@ -24,34 +28,68 @@ import {
 export function rxStateProto(
   incoming$: Observable<ChangeStateRequest>
 ): Observable<StateEvent> {
-  const queueEntryLifecycleEvent$ = incoming$.pipe(
+  const queueingStatusUpdated$ = incoming$.pipe(
     filter(
-      (message): message is AddQueueEntry => message.type === "AddQueueEntry"
+      (message): message is CreateIsQueueing =>
+        message.type === "CreateIsQueueing"
     ),
-    mergeMap((addQueueEntryMessage) => {
-      const removeQueueEntry$ = incoming$.pipe(
+    mergeMap((createIsQueueingMessage) => {
+      const isQueueing$ = incoming$.pipe(
         filter(
-          (message): message is RemoveQueueEntry =>
+          (message): message is AddQueueEntry | RemoveQueueEntry =>
+            message.type === "AddQueueEntry" ||
             message.type === "RemoveQueueEntry"
         ),
-        filter((message) => message.userId === addQueueEntryMessage.userId)
+        filter((message) => message.userId === createIsQueueingMessage.userId),
+        scan((_, message) => {
+          switch (message.type) {
+            case "AddQueueEntry":
+              return true;
+            case "RemoveQueueEntry":
+              return false;
+          }
+        }, false),
+        startWith(false),
+        share()
       );
 
-      return merge(
-        removeQueueEntry$.pipe(
-          map(
-            (message): QueueEntryRemoved => ({
-              type: "QueueEntryRemoved",
-              userId: message.userId,
-            })
-          )
+      const queueingStatus$ = isQueueing$.pipe(
+        map(
+          (isQueueing): QueueingStatusUpdated => ({
+            type: "QueueingStatusUpdated",
+            userId: createIsQueueingMessage.userId,
+            status: isQueueing,
+          })
+        )
+      );
+
+      const queueingStatusOnRequest$ = incoming$.pipe(
+        filter(
+          (message): message is GetIsQueueing =>
+            message.type === "GetIsQueueing"
         ),
-        NEVER.pipe(
-          startWith<QueueEntryAdded>({
-            type: "QueueEntryAdded",
-            userId: addQueueEntryMessage.userId,
-          }),
-          takeUntil(removeQueueEntry$)
+        filter((message) => message.userId === createIsQueueingMessage.userId),
+        withLatestFrom(isQueueing$),
+        map(
+          ([_, isQueueing]): QueueingStatusUpdated => ({
+            type: "QueueingStatusUpdated",
+            userId: createIsQueueingMessage.userId,
+            status: isQueueing,
+          })
+        )
+      );
+
+      return merge(queueingStatus$, queueingStatusOnRequest$).pipe(
+        takeUntil(
+          incoming$.pipe(
+            filter(
+              (message): message is DestroyIsQueueing =>
+                message.type === "DestroyIsQueueing"
+            ),
+            filter(
+              (message) => message.userId === createIsQueueingMessage.userId
+            )
+          )
         )
       );
     })
@@ -63,7 +101,7 @@ export function rxStateProto(
   };
 
   const queueLengthEvent$ = merge(
-    queueEntryLifecycleEvent$,
+    queueingStatusUpdated$,
     incoming$.pipe(
       filter(
         (message): message is GetQueueLength =>
@@ -72,7 +110,7 @@ export function rxStateProto(
     )
   ).pipe(
     scan<
-      GetQueueLength | QueueEntryRemoved | QueueEntryAdded,
+      GetQueueLength | QueueingStatusUpdated,
       QueueLengthUpdated | GotQueueLength
     >((prevEvent, lifecycleEvent): QueueLengthUpdated | GotQueueLength => {
       switch (lifecycleEvent.type) {
