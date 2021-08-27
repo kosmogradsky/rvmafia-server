@@ -12,17 +12,24 @@ export interface QueueLengthUpdated {
 export interface GotQueueLength {
   type: "GotQueueLength";
   requestId: string;
-  updatedLength: number;
+  length: number;
+}
+
+export interface GotIsQueueing {
+  type: "GotIsQueueing";
+  isQueueing: boolean;
 }
 
 export interface QueueEntryAdded {
   type: "QueueEntryAdded";
   userId: string;
+  updatedQueueLength: number;
 }
 
 export interface QueueEntryRemoved {
   type: "QueueEntryRemoved";
   userId: string;
+  updatedQueueLength: number;
 }
 
 export type StateEvent =
@@ -30,4 +37,5 @@ export type StateEvent =
   | QueueEntryRemoved
   | QueueingStatusUpdated
   | QueueLengthUpdated
-  | GotQueueLength;
+  | GotQueueLength
+  | GotIsQueueing;

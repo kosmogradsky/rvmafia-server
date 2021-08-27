@@ -1,11 +1,11 @@
 import { Observable } from "rxjs";
 
-interface MapperWithStateReturnee<TState, TOutcomingMessage> {
+export interface MapperWithStateReturnee<TState, TOutcomingMessage> {
   nextState: TState | undefined;
   nextMessage: TOutcomingMessage | undefined;
 }
 
-interface MapperWithState<TState, TIncomingMessage, TOutcomingMessage> {
+export interface MapperWithState<TState, TIncomingMessage, TOutcomingMessage> {
   (state: TState, message: TIncomingMessage): MapperWithStateReturnee<
     TState,
     TOutcomingMessage
