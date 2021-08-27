@@ -548,7 +548,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
         type: "SendMessage",
         message: {
           type: "QueueLengthUpdated",
-          updatedLength: stateEvent.updatedLength,
+          updatedLength: stateEvent.length,
         },
       })
     )
