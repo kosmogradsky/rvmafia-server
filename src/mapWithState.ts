@@ -22,7 +22,7 @@ export function mapWithState<TState, TIncomingMessage, TOutcomingMessage>(
     let state: TState = initialState;
 
     return new Observable<TOutcomingMessage>((subscriber) => {
-      const subscription = source.subscribe({
+      return source.subscribe({
         next(message) {
           const { nextState, nextMessage } = mapper(state, message);
 
@@ -41,10 +41,6 @@ export function mapWithState<TState, TIncomingMessage, TOutcomingMessage>(
           subscriber.complete();
         },
       });
-
-      return () => {
-        subscription.unsubscribe();
-      };
     });
   };
 }
