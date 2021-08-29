@@ -13,6 +13,7 @@ import {
   startWith,
   take,
   map,
+  scan,
 } from "rxjs/operators";
 import { ChangeStateRequest } from "./ChangeStateRequest";
 import {
@@ -123,6 +124,17 @@ export interface DisconnectedIncoming {
   type: "DisconnectedIncoming";
 }
 
+export interface Authenticate {
+  type: "Authenticate";
+  userId: string;
+}
+
+export interface Unauthenticate {
+  type: "Unauthenticate";
+}
+
+export type AuthenticationMessage = Authenticate | Unauthenticate;
+
 export type IncomingMessage =
   | ConnectedIncoming
   | DisconnectedIncoming
@@ -135,7 +147,8 @@ export type IncomingMessage =
   | SubscribeToQueueLength
   | UnsubscribeFromQueueLength
   | GetQueueLengthIncoming
-  | GetIsQueueingIncoming;
+  | GetIsQueueingIncoming
+  | AuthenticationMessage;
 
 export interface AuthStateUpdated {
   type: "AuthStateUpdated";
@@ -339,8 +352,46 @@ async function register(
   return { type: "RegisterSuccess" };
 }
 
+export interface Authenticated {
+  type: "Authenticated";
+  userId: string;
+}
+
+export interface Unauthenticated {
+  type: "Unauthenticated";
+}
+
+export type AuthenticationStatus = Authenticated | Unauthenticated;
+
 export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
   const stateRequestId = nanoid();
+
+  const initialAuthenticationStatus: AuthenticationStatus = {
+    type: "Unauthenticated",
+  };
+
+  const authenticationStatus$ = sources.message$.pipe(
+    filter(
+      (message): message is Authenticate | Unauthenticate =>
+        message.type === "Authenticate" || message.type === "Unauthenticate"
+    ),
+    map((message): AuthenticationStatus => {
+      switch (message.type) {
+        case "Authenticate": {
+          return {
+            type: "Authenticated",
+            userId: message.userId,
+          };
+        }
+        case "Unauthenticate": {
+          return {
+            type: "Unauthenticated",
+          };
+        }
+      }
+    }),
+    startWith(initialAuthenticationStatus)
+  );
 
   function createAuthenticatedMessage$({
     authSessionId,
