@@ -32,7 +32,7 @@ export interface QueueEntryRemoved {
   updatedQueueLength: number;
 }
 
-export type StateEvent =
+export type StateMessage =
   | QueueEntryAdded
   | QueueEntryRemoved
   | QueueingStatusUpdated

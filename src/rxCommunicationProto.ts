@@ -6,7 +6,7 @@ import { Server } from "socket.io";
 import { ChangeStateRequest } from "./ChangeStateRequest";
 import { IncomingMessage, rxSocketProto } from "./rxSocketProto";
 import { rxStateProto } from "./rxStateProto";
-import { StateEvent } from "./StateEvent";
+import { StateMessage } from "./StateMessage";
 
 async function rxCommunicationProto() {
   const mongoServer = await MongoMemoryServer.create();
@@ -23,12 +23,12 @@ async function rxCommunicationProto() {
   const changeStateRequest$: Observable<ChangeStateRequest> =
     changeStateRequestSubject.asObservable();
 
-  const stateEventSubject = new Subject<StateEvent>();
-  const stateEvent$ = stateEventSubject.asObservable();
+  const stateMessageSubject = new Subject<StateMessage>();
+  const stateMessage$ = stateMessageSubject.asObservable();
 
-  rxStateProto(changeStateRequest$).subscribe((stateEvent) => {
-    console.log(stateEvent);
-    stateEventSubject.next(stateEvent);
+  rxStateProto(changeStateRequest$).subscribe((stateMessage) => {
+    console.log(stateMessage);
+    stateMessageSubject.next(stateMessage);
   });
 
   const io = new Server(8000, {
@@ -110,15 +110,15 @@ async function rxCommunicationProto() {
     rxSocketProto({
       db,
       message$,
-      stateEvent$,
+      stateMessage$,
     }).subscribe((outcomingCommand) => {
       switch (outcomingCommand.type) {
-        case "ChangeState":
-          console.log("ChangeState", outcomingCommand);
+        case "SendStateQuery":
+          console.log("SendStateQuery", outcomingCommand);
           changeStateRequestSubject.next(outcomingCommand.request);
           break;
-        case "SendMessage": {
-          console.log("SendMessage", outcomingCommand);
+        case "SendServerMessage": {
+          console.log("SendServerMessage", outcomingCommand);
 
           switch (outcomingCommand.message.type) {
             case "AuthStateUpdated": {

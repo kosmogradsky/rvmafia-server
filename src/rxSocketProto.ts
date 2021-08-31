@@ -20,8 +20,8 @@ import {
   GotQueueLength,
   QueueEntryAdded,
   QueueEntryRemoved,
-  StateEvent,
-} from "./StateEvent";
+  StateMessage,
+} from "./StateMessage";
 import { nanoid } from "nanoid/non-secure";
 
 const sessionIdSecret =
@@ -126,7 +126,9 @@ export interface DisconnectedIncoming {
 
 export interface Authenticate {
   type: "Authenticate";
+  authSessionId: string;
   userId: string;
+  userEmail: string;
 }
 
 export interface Unauthenticate {
@@ -175,7 +177,7 @@ export interface ExitedQueue {
   type: "ExitedQueue";
 }
 
-export type OutcomingMessage =
+export type ServerMessage =
   | AuthStateUpdated
   | SignInWithEmailAndPasswordError
   | SignInWithAuthSessionTokenError
@@ -185,22 +187,27 @@ export type OutcomingMessage =
   | EnteredQueue
   | ExitedQueue;
 
-interface ChangeState {
-  type: "ChangeState";
+interface SendStateQuery {
+  type: "SendStateQuery";
   request: ChangeStateRequest;
 }
 
-interface SendMessage {
-  type: "SendMessage";
-  message: OutcomingMessage;
+interface SendServerMessage {
+  type: "SendServerMessage";
+  message: ServerMessage;
 }
 
-type OutcomingCommand = ChangeState | SendMessage;
+interface SendClientRecurse {
+  type: "SendClientRecurse";
+  message: IncomingMessage;
+}
+
+type OutcomingCommand = SendStateQuery | SendServerMessage | SendClientRecurse;
 
 interface Sources {
   db: Db;
   message$: Observable<IncomingMessage>;
-  stateEvent$: Observable<StateEvent>;
+  stateMessage$: Observable<StateMessage>;
 }
 
 async function signInWithEmailAndPassword(
@@ -354,7 +361,9 @@ async function register(
 
 export interface Authenticated {
   type: "Authenticated";
+  authSessionId: string;
   userId: string;
+  userEmail: string;
 }
 
 export interface Unauthenticated {
@@ -381,6 +390,8 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           return {
             type: "Authenticated",
             userId: message.userId,
+            authSessionId: message.authSessionId,
+            userEmail: message.userEmail,
           };
         }
         case "Unauthenticate": {
@@ -412,7 +423,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           })
         ),
         mapTo<OutcomingCommand>({
-          type: "SendMessage",
+          type: "SendServerMessage",
           message: {
             type: "AuthStateUpdated",
             user: null,
@@ -423,7 +434,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
         sources.message$.pipe(
           filter((message) => message.type === "EnterQueue"),
           mapTo<OutcomingCommand>({
-            type: "ChangeState",
+            type: "SendStateQuery",
             request: {
               type: "AddQueueEntry",
               userId,
@@ -433,34 +444,34 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
         sources.message$.pipe(
           filter((message) => message.type === "ExitQueue"),
           mapTo<OutcomingCommand>({
-            type: "ChangeState",
+            type: "SendStateQuery",
             request: {
               type: "RemoveQueueEntry",
               userId,
             },
           })
         ),
-        sources.stateEvent$.pipe(
+        sources.stateMessage$.pipe(
           filter(
             (message): message is QueueEntryAdded =>
               message.type === "QueueEntryAdded"
           ),
           filter((message) => message.userId === userId),
           mapTo<OutcomingCommand>({
-            type: "SendMessage",
+            type: "SendServerMessage",
             message: {
               type: "EnteredQueue",
             },
           })
         ),
-        sources.stateEvent$.pipe(
+        sources.stateMessage$.pipe(
           filter(
             (message): message is QueueEntryRemoved =>
               message.type === "QueueEntryRemoved"
           ),
           filter((message) => message.userId === userId),
           mapTo<OutcomingCommand>({
-            type: "SendMessage",
+            type: "SendServerMessage",
             message: {
               type: "ExitedQueue",
             },
@@ -468,7 +479,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
         )
       ).pipe(
         startWith<OutcomingCommand>({
-          type: "SendMessage",
+          type: "SendServerMessage",
           message: {
             type: "AuthStateUpdated",
             user: {
@@ -504,7 +515,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           return from(register(message, sources.db)).pipe(
             map(
               (message): OutcomingCommand => ({
-                type: "SendMessage",
+                type: "SendServerMessage",
                 message,
               })
             )
@@ -515,17 +526,26 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
               switch (outcoming.type) {
                 case "SignInWithEmailAndPasswordError":
                   return of<OutcomingCommand>({
-                    type: "SendMessage",
+                    type: "SendServerMessage",
                     message: outcoming,
                   });
                 case "SignInWithEmailAndPasswordSuccess":
-                  return createAuthenticatedMessage$(outcoming).pipe(
-                    startWith<OutcomingCommand>({
-                      type: "SendMessage",
+                  return of<OutcomingCommand[]>(
+                    {
+                      type: "SendClientRecurse",
+                      message: {
+                        type: "Authenticate",
+                        userId: outcoming.userId,
+                        userEmail: outcoming.userEmail,
+                        authSessionId: outcoming.authSessionId,
+                      },
+                    },
+                    {
+                      type: "SendServerMessage",
                       message: {
                         type: "SignInWithEmailAndPasswordOutcomingSuccess",
                       },
-                    })
+                    }
                   );
               }
             })
@@ -536,11 +556,19 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
               switch (outcoming.type) {
                 case "SignInWithAuthSessionTokenError":
                   return of<OutcomingCommand>({
-                    type: "SendMessage",
+                    type: "SendServerMessage",
                     message: outcoming,
                   });
                 case "SignInWithAuthSessionTokenSuccess":
-                  return createAuthenticatedMessage$(outcoming);
+                  return of<OutcomingCommand>({
+                    type: "SendClientRecurse",
+                    message: {
+                      type: "Authenticate",
+                      userId: outcoming.userId,
+                      userEmail: outcoming.userEmail,
+                      authSessionId: outcoming.authSessionId,
+                    },
+                  });
               }
             })
           );
@@ -551,17 +579,17 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
   const queueLengthEvent$ = sources.message$.pipe(
     filter((message) => message.type === "SubscribeToQueueLength"),
     exhaustMap(() =>
-      sources.stateEvent$.pipe(
+      sources.stateMessage$.pipe(
         filter(
-          (stateEvent): stateEvent is QueueLengthUpdated =>
-            stateEvent.type === "QueueLengthUpdated"
+          (stateMessage): stateMessage is QueueLengthUpdated =>
+            stateMessage.type === "QueueLengthUpdated"
         ),
         map(
-          (stateEvent): OutcomingCommand => ({
-            type: "SendMessage",
+          (stateMessage): OutcomingCommand => ({
+            type: "SendServerMessage",
             message: {
               type: "QueueLengthUpdated",
-              updatedLength: stateEvent.updatedLength,
+              updatedLength: stateMessage.updatedLength,
             },
           })
         ),
@@ -580,7 +608,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
         message.type === "GetQueueLengthIncoming"
     ),
     mapTo<OutcomingCommand>({
-      type: "ChangeState",
+      type: "SendStateQuery",
       request: {
         type: "GetQueueLength",
         requestId: stateRequestId,
@@ -588,18 +616,18 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     })
   );
 
-  const gotQueueLength$ = sources.stateEvent$.pipe(
+  const gotQueueLength$ = sources.stateMessage$.pipe(
     filter(
-      (stateEvent): stateEvent is GotQueueLength =>
-        stateEvent.type === "GotQueueLength"
+      (stateMessage): stateMessage is GotQueueLength =>
+        stateMessage.type === "GotQueueLength"
     ),
-    filter((stateEvent) => stateEvent.requestId === stateRequestId),
+    filter((stateMessage) => stateMessage.requestId === stateRequestId),
     map(
-      (stateEvent): OutcomingCommand => ({
-        type: "SendMessage",
+      (stateMessage): OutcomingCommand => ({
+        type: "SendServerMessage",
         message: {
           type: "QueueLengthUpdated",
-          updatedLength: stateEvent.length,
+          updatedLength: stateMessage.length,
         },
       })
     )
@@ -645,7 +673,7 @@ async function mongoMain() {
   rxSocketProto({
     db,
     message$,
-    stateEvent$: EMPTY,
+    stateMessage$: EMPTY,
   }).subscribe(async (message) => {
     console.log(message);
     console.log(await db.collection("authSessions").find().toArray());

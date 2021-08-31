@@ -16,13 +16,13 @@ import {
   QueueEntryRemoved,
   QueueingStatusUpdated,
   QueueLengthUpdated,
-  StateEvent,
-} from "./StateEvent";
+  StateMessage,
+} from "./StateMessage";
 
 export function rxStateProto(
   incoming$: Observable<ChangeStateRequest>
-): Observable<StateEvent> {
-  const queueStateEvent$ = incoming$.pipe(
+): Observable<StateMessage> {
+  const queueStateMessage$ = incoming$.pipe(
     filter(
       (
         message
@@ -40,7 +40,7 @@ export function rxStateProto(
       (
         state,
         message
-      ): MapperWithStateReturnee<Map<string, QueueEntry>, StateEvent> => {
+      ): MapperWithStateReturnee<Map<string, QueueEntry>, StateMessage> => {
         switch (message.type) {
           case "AddQueueEntry": {
             const nextState = new Map(state);
@@ -101,7 +101,7 @@ export function rxStateProto(
     )
   );
 
-  const queueLengthUpdated$ = queueStateEvent$.pipe(
+  const queueLengthUpdated$ = queueStateMessage$.pipe(
     filter(
       (message): message is QueueEntryAdded | QueueEntryRemoved =>
         message.type === "QueueEntryAdded" ||
@@ -116,7 +116,7 @@ export function rxStateProto(
   );
 
   const queueingStatusUpdated$ = merge(
-    queueStateEvent$.pipe(
+    queueStateMessage$.pipe(
       filter(
         (message): message is QueueEntryAdded =>
           message.type === "QueueEntryAdded"
@@ -129,7 +129,7 @@ export function rxStateProto(
         })
       )
     ),
-    queueStateEvent$.pipe(
+    queueStateMessage$.pipe(
       filter(
         (message): message is QueueEntryRemoved =>
           message.type === "QueueEntryRemoved"
@@ -144,5 +144,5 @@ export function rxStateProto(
     )
   );
 
-  return merge(queueStateEvent$, queueLengthUpdated$, queueingStatusUpdated$);
+  return merge(queueStateMessage$, queueLengthUpdated$, queueingStatusUpdated$);
 }
