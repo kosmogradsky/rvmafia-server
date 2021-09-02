@@ -18,7 +18,7 @@ export interface GetIsQueueing {
   userId: string;
 }
 
-export type ChangeStateRequest =
+export type StateQuery =
   | AddQueueEntry
   | RemoveQueueEntry
   | GetQueueLength

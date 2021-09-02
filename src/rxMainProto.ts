@@ -2,8 +2,8 @@ import * as bcrypt from "bcrypt";
 import { MongoClient } from "mongodb";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { Subject, Observable } from "rxjs";
-import { ChangeStateRequest } from "./ChangeStateRequest";
-import { IncomingMessage, rxSocketProto } from "./rxSocketProto";
+import { StateQuery } from "./StateQuery";
+import { ClientMessage, rxSocketProto } from "./rxSocketProto";
 import { rxStateProto } from "./rxStateProto";
 import { StateMessage } from "./StateMessage";
 
@@ -18,11 +18,11 @@ async function rxMainProto() {
     hashedPassword: await bcrypt.hash("1234567", 10),
   });
 
-  const messageSubject = new Subject<IncomingMessage>();
-  const message$: Observable<IncomingMessage> = messageSubject.asObservable();
+  const messageSubject = new Subject<ClientMessage>();
+  const message$: Observable<ClientMessage> = messageSubject.asObservable();
 
-  const changeStateRequestSubject = new Subject<ChangeStateRequest>();
-  const changeStateRequest$: Observable<ChangeStateRequest> =
+  const changeStateRequestSubject = new Subject<StateQuery>();
+  const changeStateRequest$: Observable<StateQuery> =
     changeStateRequestSubject.asObservable();
 
   const stateMessageSubject = new Subject<StateMessage>();
@@ -36,7 +36,7 @@ async function rxMainProto() {
     switch (outcomingCommand.type) {
       case "SendStateQuery":
         console.log("SendStateQuery", outcomingCommand);
-        changeStateRequestSubject.next(outcomingCommand.request);
+        changeStateRequestSubject.next(outcomingCommand.query);
         break;
       case "SendServerMessage":
         console.log("SendServerMessage", outcomingCommand);

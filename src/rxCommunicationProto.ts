@@ -3,8 +3,8 @@ import { MongoClient } from "mongodb";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { Subject, Observable } from "rxjs";
 import { Server } from "socket.io";
-import { ChangeStateRequest } from "./ChangeStateRequest";
-import { IncomingMessage, rxSocketProto } from "./rxSocketProto";
+import { StateQuery } from "./StateQuery";
+import { ClientMessage, DatabaseMessage, rxSocketProto, ServerInternalMessage } from "./rxSocketProto";
 import { rxStateProto } from "./rxStateProto";
 import { StateMessage } from "./StateMessage";
 
@@ -19,12 +19,15 @@ async function rxCommunicationProto() {
     hashedPassword: await bcrypt.hash("1234567", 10),
   });
 
-  const changeStateRequestSubject = new Subject<ChangeStateRequest>();
-  const changeStateRequest$: Observable<ChangeStateRequest> =
+  const changeStateRequestSubject = new Subject<StateQuery>();
+  const changeStateRequest$: Observable<StateQuery> =
     changeStateRequestSubject.asObservable();
 
   const stateMessageSubject = new Subject<StateMessage>();
   const stateMessage$ = stateMessageSubject.asObservable();
+
+  const databaseMessageSubject = new Subject<DatabaseMessage>();
+  const databaseMessage$ = databaseMessageSubject.asObservable();
 
   rxStateProto(changeStateRequest$).subscribe((stateMessage) => {
     console.log(stateMessage);
@@ -36,13 +39,16 @@ async function rxCommunicationProto() {
   });
 
   io.on("connection", (socket) => {
-    const messageSubject = new Subject<IncomingMessage>();
-    const message$: Observable<IncomingMessage> = messageSubject.asObservable();
+    const clientMessageSubject = new Subject<ClientMessage>();
+    const clientMessage$: Observable<ClientMessage> = clientMessageSubject.asObservable();
+
+    const serverInternalMessageSubject = new Subject<ServerInternalMessage>();
+    const serverInternalMessage$: Observable<ServerInternalMessage> = serverInternalMessageSubject.asObservable();
 
     socket.on(
       "sign in with email and password",
       (email: string, password: string) => {
-        messageSubject.next({
+        clientMessageSubject.next({
           type: "SignInWithEmailAndPasswordIncoming",
           email,
           password,
@@ -51,14 +57,14 @@ async function rxCommunicationProto() {
     );
 
     socket.on("sign in with auth session token", (authSessionToken: string) => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "SignInWithAuthSessionTokenIncoming",
         authSessionToken,
       });
     });
 
     socket.on("register", (email: string, password: string) => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "RegisterIncoming",
         email,
         password,
@@ -66,56 +72,57 @@ async function rxCommunicationProto() {
     });
 
     socket.on("sign out", () => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "SignOutIncoming",
       });
     });
 
     socket.on("enter queue", () => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "EnterQueue",
       });
     });
 
     socket.on("exit queue", () => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "ExitQueue",
       });
     });
 
     socket.on("subscribe to queue length", () => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "SubscribeToQueueLength",
       });
     });
 
     socket.on("unsubscribe from queue length", () => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "UnsubscribeFromQueueLength",
       });
     });
 
     socket.on("get queue length", () => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "GetQueueLengthIncoming",
       });
     });
 
     socket.on("get is queueing", () => {
-      messageSubject.next({
+      clientMessageSubject.next({
         type: "GetIsQueueingIncoming",
       });
     });
 
     rxSocketProto({
-      db,
-      message$,
+      databaseMessage$,
+      clientMessage$,
+      serverInternalMessage$,
       stateMessage$,
     }).subscribe((outcomingCommand) => {
       switch (outcomingCommand.type) {
         case "SendStateQuery":
           console.log("SendStateQuery", outcomingCommand);
-          changeStateRequestSubject.next(outcomingCommand.request);
+          changeStateRequestSubject.next(outcomingCommand.query);
           break;
         case "SendServerMessage": {
           console.log("SendServerMessage", outcomingCommand);

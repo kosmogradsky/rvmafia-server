@@ -15,7 +15,7 @@ import {
   map,
   scan,
 } from "rxjs/operators";
-import { ChangeStateRequest } from "./ChangeStateRequest";
+import { StateQuery } from "./StateQuery";
 import {
   GotQueueLength,
   QueueEntryAdded,
@@ -23,6 +23,7 @@ import {
   StateMessage,
 } from "./StateMessage";
 import { nanoid } from "nanoid/non-secure";
+import { DatabaseQuery } from "./DatabaseQuery";
 
 const sessionIdSecret =
   "j[P{;a^jYRRKWW>>$/}j]+a3-B7n:`wa92Y[`F>{PkzP$atV#DUh98Qgk^_%C%8^";
@@ -136,8 +137,9 @@ export interface Unauthenticate {
 }
 
 export type AuthenticationMessage = Authenticate | Unauthenticate;
+export type ServerInternalMessage = AuthenticationMessage;
 
-export type IncomingMessage =
+export type ClientMessage =
   | ConnectedIncoming
   | DisconnectedIncoming
   | RegisterIncoming
@@ -149,8 +151,7 @@ export type IncomingMessage =
   | SubscribeToQueueLength
   | UnsubscribeFromQueueLength
   | GetQueueLengthIncoming
-  | GetIsQueueingIncoming
-  | AuthenticationMessage;
+  | GetIsQueueingIncoming;
 
 export interface AuthStateUpdated {
   type: "AuthStateUpdated";
@@ -187,9 +188,16 @@ export type ServerMessage =
   | EnteredQueue
   | ExitedQueue;
 
+export type DatabaseMessage = never;
+
 interface SendStateQuery {
   type: "SendStateQuery";
-  request: ChangeStateRequest;
+  query: StateQuery;
+}
+
+interface SendDatabaseQuery {
+  type: "SendDatabaseQuery";
+  query: DatabaseQuery;
 }
 
 interface SendServerMessage {
@@ -197,17 +205,22 @@ interface SendServerMessage {
   message: ServerMessage;
 }
 
-interface SendClientRecurse {
-  type: "SendClientRecurse";
-  message: IncomingMessage;
+interface SendServerInternalMessage {
+  type: "SendServerInternalMessage";
+  message: ServerInternalMessage;
 }
 
-type OutcomingCommand = SendStateQuery | SendServerMessage | SendClientRecurse;
+type OutcomingCommand =
+  | SendStateQuery
+  | SendServerMessage
+  | SendServerInternalMessage
+  | SendDatabaseQuery;
 
 interface Sources {
-  db: Db;
-  message$: Observable<IncomingMessage>;
+  databaseMessage$: Observable<DatabaseMessage>;
+  clientMessage$: Observable<ClientMessage>;
   stateMessage$: Observable<StateMessage>;
+  serverInternalMessage$: Observable<ServerInternalMessage>;
 }
 
 async function signInWithEmailAndPassword(
@@ -379,7 +392,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     type: "Unauthenticated",
   };
 
-  const authenticationStatus$ = sources.message$.pipe(
+  const authenticationStatus$ = sources.serverInternalMessage$.pipe(
     filter(
       (message): message is Authenticate | Unauthenticate =>
         message.type === "Authenticate" || message.type === "Unauthenticate"
@@ -404,6 +417,23 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     startWith(initialAuthenticationStatus)
   );
 
+  sources.clientMessage$.pipe(
+    filter((message) => message.type === "SignOutIncoming"),
+    take(1),
+    mergeMap(() =>
+      sources.db.collection("authSessions").deleteOne({
+        _id: new ObjectId(authSessionId),
+      })
+    ),
+    mapTo<OutcomingCommand>({
+      type: "SendServerMessage",
+      message: {
+        type: "AuthStateUpdated",
+        user: null,
+      },
+    })
+  );
+
   function createAuthenticatedMessage$({
     authSessionId,
     userId,
@@ -414,28 +444,12 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     userEmail: string;
   }): Observable<OutcomingCommand> {
     return merge(
-      sources.message$.pipe(
-        filter((message) => message.type === "SignOutIncoming"),
-        take(1),
-        mergeMap(() =>
-          sources.db.collection("authSessions").deleteOne({
-            _id: new ObjectId(authSessionId),
-          })
-        ),
-        mapTo<OutcomingCommand>({
-          type: "SendServerMessage",
-          message: {
-            type: "AuthStateUpdated",
-            user: null,
-          },
-        })
-      ),
       merge(
         sources.message$.pipe(
           filter((message) => message.type === "EnterQueue"),
           mapTo<OutcomingCommand>({
             type: "SendStateQuery",
-            request: {
+            query: {
               type: "AddQueueEntry",
               userId,
             },
@@ -445,7 +459,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
           filter((message) => message.type === "ExitQueue"),
           mapTo<OutcomingCommand>({
             type: "SendStateQuery",
-            request: {
+            query: {
               type: "RemoveQueueEntry",
               userId,
             },
@@ -609,7 +623,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     ),
     mapTo<OutcomingCommand>({
       type: "SendStateQuery",
-      request: {
+      query: {
         type: "GetQueueLength",
         requestId: stateRequestId,
       },
@@ -667,8 +681,8 @@ async function mongoMain() {
   //   )
   // );
 
-  const messageSubject = new Subject<IncomingMessage>();
-  const message$: Observable<IncomingMessage> = messageSubject.asObservable();
+  const messageSubject = new Subject<ClientMessage>();
+  const message$: Observable<ClientMessage> = messageSubject.asObservable();
 
   rxSocketProto({
     db,

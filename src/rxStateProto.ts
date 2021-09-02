@@ -1,12 +1,12 @@
 import { merge, Observable } from "rxjs";
 import { filter, map } from "rxjs/operators";
 import {
-  ChangeStateRequest,
+  StateQuery,
   RemoveQueueEntry,
   AddQueueEntry,
   GetQueueLength,
   GetIsQueueing,
-} from "./ChangeStateRequest";
+} from "./StateQuery";
 import { MapperWithStateReturnee, mapWithState } from "./mapWithState";
 import { QueueEntry } from "./QueueEntry";
 import {
@@ -20,7 +20,7 @@ import {
 } from "./StateMessage";
 
 export function rxStateProto(
-  incoming$: Observable<ChangeStateRequest>
+  incoming$: Observable<StateQuery>
 ): Observable<StateMessage> {
   const queueStateMessage$ = incoming$.pipe(
     filter(
