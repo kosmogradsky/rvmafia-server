@@ -45,7 +45,15 @@ import {
   DeletedAuthSession,
   DatabaseMessage,
   FoundUserByEmail,
+  InsertedAuthSession,
+  FoundAuthSessionById,
+  FoundUserById,
 } from "./DatabaseMessage";
+import {
+  Authenticate,
+  ServerInternalMessage,
+  Unauthenticate,
+} from "./ServerInternalMessage";
 
 const sessionIdSecret =
   "j[P{;a^jYRRKWW>>$/}j]+a3-B7n:`wa92Y[`F>{PkzP$atV#DUh98Qgk^_%C%8^";
@@ -128,20 +136,6 @@ export interface DisconnectedIncoming {
   type: "DisconnectedIncoming";
 }
 
-export interface Authenticate {
-  type: "Authenticate";
-  authSessionId: string;
-  userId: string;
-  userEmail: string;
-}
-
-export interface Unauthenticate {
-  type: "Unauthenticate";
-}
-
-export type AuthenticationMessage = Authenticate | Unauthenticate;
-export type ServerInternalMessage = AuthenticationMessage;
-
 export type ClientMessage =
   | ConnectedIncoming
   | DisconnectedIncoming
@@ -193,7 +187,7 @@ function signInWithEmailAndPassword(
   socketId: string,
   sources: Sources
 ): Observable<OutcomingCommand> {
-  sources.clientMessage$.pipe(
+  const findUserByEmail$ = sources.clientMessage$.pipe(
     filter(
       (message): message is SignInWithEmailAndPasswordIncoming =>
         message.type === "SignInWithEmailAndPasswordIncoming"
@@ -214,7 +208,7 @@ function signInWithEmailAndPassword(
     )
   );
 
-  sources.databaseMessage$.pipe(
+  const insertAuthSession$ = sources.databaseMessage$.pipe(
     filter(
       (message): message is FoundUserByEmail =>
         message.type === "FoundUserByEmail" &&
@@ -261,85 +255,125 @@ function signInWithEmailAndPassword(
     })
   );
 
-  sources.databaseMessage$.pipe(
+  const signInWithEmailAndPasswordSuccess$ = sources.databaseMessage$.pipe(
     filter(
-      (message) =>
+      (message): message is InsertedAuthSession =>
         message.type === "InsertedAuthSession" &&
         message.socketId === socketId &&
         message.context.type === "SignInWithEmailAndPassword"
     ),
-    map(message => {
-      
+    map((message): OutcomingCommand => {
+      const authSessionToken = jwt.sign(
+        { authSessionId: message.insertedId } as object,
+        sessionIdSecret
+      );
+
+      return {
+        type: "SendServerInternalMessage",
+        message: {
+          type: "Authenticate",
+          authSessionToken,
+          authSessionId: message.insertedId,
+          userId: message.context.user.id,
+          userEmail: message.context.user.email,
+        },
+      };
     })
   );
 
-  const insertedSessionId = insertedSession.insertedId.toHexString();
-
-  const authSessionToken = await new Promise<string>((resolve) =>
-    jwt.sign(
-      { authSessionId: insertedSessionId } as object,
-      sessionIdSecret,
-      (_err, authSessionToken) => {
-        resolve(authSessionToken!);
-      }
-    )
+  return merge(
+    findUserByEmail$,
+    insertAuthSession$,
+    signInWithEmailAndPasswordSuccess$
   );
-
-  return {
-    type: "SignInWithEmailAndPasswordSuccess",
-    authSessionToken,
-    authSessionId: insertedSessionId,
-    userId: userDoc._id,
-    userEmail: userDoc.email,
-  };
 }
 
 async function signInWithAuthSessionToken(
-  message: SignInWithAuthSessionTokenIncoming,
-  db: Db
+  socketId: string,
+  sources: Sources
 ): Promise<SignInWithAuthSessionTokenOutcoming> {
-  const decodedSessionId = await new Promise<
-    { type: "Error" } | { type: "Success"; authSessionId: string }
-  >((resolve) =>
-    jwt.verify(message.authSessionToken, sessionIdSecret, (err, decoded) => {
-      if (err) {
-        resolve({ type: "Error" });
+  sources.clientMessage$.pipe(
+    filter(
+      (message): message is SignInWithAuthSessionTokenIncoming =>
+        message.type === "SignInWithAuthSessionTokenIncoming"
+    ),
+    map((message): OutcomingCommand => {
+      const decoded = jwt.verify(message.authSessionToken, sessionIdSecret);
+      const authSessionId: string | undefined = (decoded as jwt.JwtPayload)
+        ?.authSessionId;
+
+      if (authSessionId === undefined) {
+        return {
+          type: "SendServerMessage",
+          message: {
+            type: "SignInWithAuthSessionTokenError",
+            description: "DECODING_ERROR",
+          },
+        };
       }
 
-      const authSessionId: string | undefined = decoded?.authSessionId;
-      if (authSessionId === undefined) {
-        resolve({ type: "Error" });
-      } else {
-        resolve({
-          type: "Success",
+      return {
+        type: "SendDatabaseQuery",
+        query: {
+          type: "FindAuthSessionById",
+          socketId,
           authSessionId,
-        });
+        },
+      };
+    })
+  );
+
+  sources.databaseMessage$.pipe(
+    filter((message): message is FoundAuthSessionById => message.type === 'FoundAuthSessionById'),
+    map((message): OutcomingCommand => {
+      if (message.authSession === undefined) {
+        return {
+          type: 'SendServerMessage',
+          message: {
+            type: "SignInWithAuthSessionTokenError",
+            description: "SESSION_NOT_EXISTENT",
+          }
+        }
+      }
+
+      return {
+        type: 'SendDatabaseQuery',
+        query: {
+          type: 'FindUserById',
+          userId: message.authSession.userId,
+          authSessionId: message.authSessionId,
+          authSessionToken: message.authSessionToken,
+          socketId
+        }
       }
     })
   );
 
-  if (decodedSessionId.type === "Error") {
-    return {
-      type: "SignInWithAuthSessionTokenError",
-      description: "DECODING_ERROR",
-    };
-  }
+  sources.databaseMessage$.pipe(
+    filter((message): message is FoundUserById => message.type === 'FoundUserById'),
+    map((message): OutcomingCommand => {
+      if (message.user === undefined) {
+        return {
+          type: 'SendServerMessage',
+          message: {
+            type: 'SignInWithAuthSessionTokenError',
+            description: 'USER_NOT_FOUND'
+          }
+        }
+      }
 
-  const authSessionId = decodedSessionId.authSessionId;
-  const authSessionDoc = await db
-    .collection("authSessions")
-    .findOne({ _id: new ObjectId(authSessionId) });
-
-  if (authSessionDoc === undefined) {
-    return {
-      type: "SignInWithAuthSessionTokenError",
-      description: "SESSION_NOT_EXISTENT",
-    };
-  }
-
-  const userDoc = await db
-    .collection("users")
-    .findOne({ _id: authSessionDoc.userId });
+      return {
+        type: "SendServerInternalMessage",
+        message: {
+          type: "Authenticate",
+          authSessionToken: message.authSessionToken,
+          authSessionId: message.authSessionId,
+          userId: message.userId,
+          userEmail: message.user.email,
+        },
+      };
+    })
+  )
 
   return {
     type: "SignInWithAuthSessionTokenSuccess",

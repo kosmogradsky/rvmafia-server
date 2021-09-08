@@ -33,8 +33,24 @@ export interface InsertAuthSession {
   };
 }
 
+export interface FindAuthSessionById {
+  type: 'FindAuthSessionById';
+  socketId: string;
+  authSessionId: string;
+}
+
+export interface FindUserById {
+  type: 'FindUserById';
+  userId: string;
+  socketId: string;
+  authSessionId: string;
+  authSessionToken: string;
+}
+
 export type DatabaseQuery =
   | DeleteAuthSession
   | InsertRegisteredUser
   | FindUserByEmail
-  | InsertAuthSession;
+  | InsertAuthSession
+  | FindAuthSessionById
+  | FindUserById;
