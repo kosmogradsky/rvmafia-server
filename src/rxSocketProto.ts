@@ -288,11 +288,11 @@ function signInWithEmailAndPassword(
   );
 }
 
-async function signInWithAuthSessionToken(
+function signInWithAuthSessionToken(
   socketId: string,
   sources: Sources
-): Promise<SignInWithAuthSessionTokenOutcoming> {
-  sources.clientMessage$.pipe(
+): Observable<OutcomingCommand> {
+  const findAuthSessionById$ = sources.clientMessage$.pipe(
     filter(
       (message): message is SignInWithAuthSessionTokenIncoming =>
         message.type === "SignInWithAuthSessionTokenIncoming"
@@ -323,7 +323,7 @@ async function signInWithAuthSessionToken(
     })
   );
 
-  sources.databaseMessage$.pipe(
+  const findUserById$ = sources.databaseMessage$.pipe(
     filter((message): message is FoundAuthSessionById => message.type === 'FoundAuthSessionById'),
     map((message): OutcomingCommand => {
       if (message.authSession === undefined) {
@@ -349,7 +349,7 @@ async function signInWithAuthSessionToken(
     })
   );
 
-  sources.databaseMessage$.pipe(
+  const signInWithAuthSessionTokenSuccess$ = sources.databaseMessage$.pipe(
     filter((message): message is FoundUserById => message.type === 'FoundUserById'),
     map((message): OutcomingCommand => {
       if (message.user === undefined) {
@@ -375,12 +375,11 @@ async function signInWithAuthSessionToken(
     })
   )
 
-  return {
-    type: "SignInWithAuthSessionTokenSuccess",
-    authSessionId,
-    userId: authSessionDoc.userId,
-    userEmail: userDoc.email,
-  };
+  return merge(
+    findAuthSessionById$,
+    findUserById$,
+    signInWithAuthSessionTokenSuccess$
+  );
 }
 
 function register(
