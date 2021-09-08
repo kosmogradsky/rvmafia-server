@@ -41,7 +41,11 @@ import {
   SignInWithAuthSessionTokenError,
   SignInWithEmailAndPasswordError,
 } from "./ServerMessage";
-import { AuthSessionDeleted, DatabaseMessage } from "./DatabaseMessage";
+import {
+  DeletedAuthSession,
+  DatabaseMessage,
+  FoundUserByEmail,
+} from "./DatabaseMessage";
 
 const sessionIdSecret =
   "j[P{;a^jYRRKWW>>$/}j]+a3-B7n:`wa92Y[`F>{PkzP$atV#DUh98Qgk^_%C%8^";
@@ -185,38 +189,90 @@ interface Sources {
   serverInternalMessage$: Observable<ServerInternalMessage>;
 }
 
-async function signInWithEmailAndPassword(
-  message: SignInWithEmailAndPasswordIncoming,
-  db: Db
-): Promise<SignInWithEmailAndPasswordOutcoming> {
-  const userDoc = await db
-    .collection("users")
-    .findOne({ email: message.email });
-
-  console.log(userDoc);
-
-  if (userDoc === undefined) {
-    return {
-      type: "SignInWithEmailAndPasswordError",
-      description: "WRONG_EMAIL_OR_PASSWORD",
-    };
-  }
-
-  const isPasswordCorrect = await bcrypt.compare(
-    message.password,
-    userDoc.hashedPassword
+function signInWithEmailAndPassword(
+  socketId: string,
+  sources: Sources
+): Observable<OutcomingCommand> {
+  sources.clientMessage$.pipe(
+    filter(
+      (message): message is SignInWithEmailAndPasswordIncoming =>
+        message.type === "SignInWithEmailAndPasswordIncoming"
+    ),
+    map(
+      (message): OutcomingCommand => ({
+        type: "SendDatabaseQuery",
+        query: {
+          type: "FindUserByEmail",
+          email: message.email,
+          socketId,
+          context: {
+            type: "SignInWithEmailAndPassword",
+            password: message.password,
+          },
+        },
+      })
+    )
   );
 
-  if (isPasswordCorrect === false) {
-    return {
-      type: "SignInWithEmailAndPasswordError",
-      description: "WRONG_EMAIL_OR_PASSWORD",
-    };
-  }
+  sources.databaseMessage$.pipe(
+    filter(
+      (message): message is FoundUserByEmail =>
+        message.type === "FoundUserByEmail" &&
+        message.socketId === socketId &&
+        message.context.type === "SignInWithEmailAndPassword"
+    ),
+    map((message): OutcomingCommand => {
+      if (message.user === undefined) {
+        return {
+          type: "SendServerMessage",
+          message: {
+            type: "SignInWithEmailAndPasswordError",
+            description: "WRONG_EMAIL_OR_PASSWORD",
+          },
+        };
+      }
 
-  const insertedSession = await db.collection("authSessions").insertOne({
-    userId: userDoc._id,
-  });
+      const isPasswordCorrect = bcrypt.compareSync(
+        message.context.password,
+        message.user.hashedPassword
+      );
+
+      if (isPasswordCorrect === false) {
+        return {
+          type: "SendServerMessage",
+          message: {
+            type: "SignInWithEmailAndPasswordError",
+            description: "WRONG_EMAIL_OR_PASSWORD",
+          },
+        };
+      }
+
+      return {
+        type: "SendDatabaseQuery",
+        query: {
+          type: "InsertAuthSession",
+          socketId,
+          userId: message.user._id,
+          context: {
+            type: "SignInWithEmailAndPassword",
+          },
+        },
+      };
+    })
+  );
+
+  sources.databaseMessage$.pipe(
+    filter(
+      (message) =>
+        message.type === "InsertedAuthSession" &&
+        message.socketId === socketId &&
+        message.context.type === "SignInWithEmailAndPassword"
+    ),
+    map(message => {
+      
+    })
+  );
+
   const insertedSessionId = insertedSession.insertedId.toHexString();
 
   const authSessionToken = await new Promise<string>((resolve) =>
@@ -293,48 +349,87 @@ async function signInWithAuthSessionToken(
   };
 }
 
-async function register(
+function register(
+  socketId: string,
   sources: Sources
 ): Observable<OutcomingCommand> {
-  sources.clientMessage$.pipe(
-    filter(message => message.type === 'RegisterIncoming')
-  )
+  const insertRegisteredUser$ = sources.clientMessage$.pipe(
+    filter(
+      (message): message is RegisterIncoming =>
+        message.type === "RegisterIncoming"
+    ),
+    map((message): OutcomingCommand => {
+      if (typeof message.email !== "string") {
+        return {
+          type: "SendServerMessage",
+          message: {
+            type: "RegisterError",
+            description: "EMAIL_MUST_BE_STRING",
+          },
+        };
+      }
 
-  if (typeof message.email !== "string") {
-    return {
-      type: "RegisterError",
-      description: "EMAIL_MUST_BE_STRING",
-    };
-  }
+      if (typeof message.password !== "string") {
+        return {
+          type: "SendServerMessage",
+          message: {
+            type: "RegisterError",
+            description: "PASSWORD_MUST_BE_STRING",
+          },
+        };
+      }
 
-  if (typeof message.password !== "string") {
-    return {
-      type: "RegisterError",
-      description: "PASSWORD_MUST_BE_STRING",
-    };
-  }
+      if (EmailValidator.validate(message.email) === false) {
+        return {
+          type: "SendServerMessage",
+          message: {
+            type: "RegisterError",
+            description: "EMAIL_NOT_VALID",
+          },
+        };
+      }
 
-  if (EmailValidator.validate(message.email) === false) {
-    return {
-      type: "RegisterError",
-      description: "EMAIL_NOT_VALID",
-    };
-  }
+      if (message.password.length < 6) {
+        return {
+          type: "SendServerMessage",
+          message: {
+            type: "RegisterError",
+            description: "PASSWORD_TOO_SHORT",
+          },
+        };
+      }
 
-  if (message.password.length < 6) {
-    return {
-      type: "RegisterError",
-      description: "PASSWORD_TOO_SHORT",
-    };
-  }
+      const hashedPassword = bcrypt.hashSync(message.password, 10);
 
-  const hashedPassword = await bcrypt.hash(message.password, 10);
+      return {
+        type: "SendDatabaseQuery",
+        query: {
+          type: "InsertRegisteredUser",
+          email: message.email,
+          hashedPassword,
+          socketId,
+        },
+      };
+    })
+  );
 
-  await db
-    .collection("users")
-    .insertOne({ email: message.email, hashedPassword });
+  const registerSuccess$ = sources.databaseMessage$.pipe(
+    filter(
+      (message) =>
+        message.type === "InsertedRegisteredUser" &&
+        message.socketId === socketId
+    ),
+    map(
+      (): OutcomingCommand => ({
+        type: "SendServerMessage",
+        message: {
+          type: "RegisterSuccess",
+        },
+      })
+    )
+  );
 
-  return { type: "RegisterSuccess" };
+  return merge(insertRegisteredUser$, registerSuccess$);
 }
 
 export interface Authenticated {
@@ -434,8 +529,8 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
 
   sources.databaseMessage$.pipe(
     filter(
-      (message): message is AuthSessionDeleted =>
-        message.type === "AuthSessionDeleted" &&
+      (message): message is DeletedAuthSession =>
+        message.type === "DeletedAuthSession" &&
         message.context.socketId === socketId
     ),
     map(
@@ -530,7 +625,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     filter(
       (message): message is RegisterIncoming =>
         message.type === "RegisterIncoming"
-    ),
+    )
   );
 
   const authGuardedEvent$ = sources.clientMessage$.pipe(
