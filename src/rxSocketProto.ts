@@ -23,6 +23,7 @@ import {
   map,
   withLatestFrom,
   share,
+  switchMap,
 } from "rxjs/operators";
 import { StateQuery } from "./StateQuery";
 import {
@@ -324,42 +325,47 @@ function signInWithAuthSessionToken(
   );
 
   const findUserById$ = sources.databaseMessage$.pipe(
-    filter((message): message is FoundAuthSessionById => message.type === 'FoundAuthSessionById'),
+    filter(
+      (message): message is FoundAuthSessionById =>
+        message.type === "FoundAuthSessionById"
+    ),
     map((message): OutcomingCommand => {
       if (message.authSession === undefined) {
         return {
-          type: 'SendServerMessage',
+          type: "SendServerMessage",
           message: {
             type: "SignInWithAuthSessionTokenError",
             description: "SESSION_NOT_EXISTENT",
-          }
-        }
+          },
+        };
       }
 
       return {
-        type: 'SendDatabaseQuery',
+        type: "SendDatabaseQuery",
         query: {
-          type: 'FindUserById',
+          type: "FindUserById",
           userId: message.authSession.userId,
           authSessionId: message.authSessionId,
           authSessionToken: message.authSessionToken,
-          socketId
-        }
-      }
+          socketId,
+        },
+      };
     })
   );
 
   const signInWithAuthSessionTokenSuccess$ = sources.databaseMessage$.pipe(
-    filter((message): message is FoundUserById => message.type === 'FoundUserById'),
+    filter(
+      (message): message is FoundUserById => message.type === "FoundUserById"
+    ),
     map((message): OutcomingCommand => {
       if (message.user === undefined) {
         return {
-          type: 'SendServerMessage',
+          type: "SendServerMessage",
           message: {
-            type: 'SignInWithAuthSessionTokenError',
-            description: 'USER_NOT_FOUND'
-          }
-        }
+            type: "SignInWithAuthSessionTokenError",
+            description: "USER_NOT_FOUND",
+          },
+        };
       }
 
       return {
@@ -373,7 +379,7 @@ function signInWithAuthSessionToken(
         },
       };
     })
-  )
+  );
 
   return merge(
     findAuthSessionById$,
@@ -481,10 +487,6 @@ export type AuthStatus = Authenticated | Unauthenticated;
 export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
   const socketId = nanoid();
 
-  const initialAuthStatus: AuthStatus = {
-    type: "Unauthenticated",
-  };
-
   const authStatus$ = sources.serverInternalMessage$.pipe(
     filter(
       (message): message is Authenticate | Unauthenticate =>
@@ -508,14 +510,14 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
       }
     }),
     share({
-      connector: () => new BehaviorSubject<AuthStatus>(initialAuthStatus),
-      resetOnError: false,
-      resetOnComplete: false,
-      resetOnRefCountZero: false,
+      connector: () =>
+        new BehaviorSubject<AuthStatus>({
+          type: "Unauthenticated",
+        }),
     })
   );
 
-  authStatus$.pipe(
+  const authStatusUpdated$ = authStatus$.pipe(
     map(
       (authStatus): OutcomingCommand => ({
         type: "SendServerMessage",
@@ -533,7 +535,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     )
   );
 
-  sources.clientMessage$.pipe(
+  const deleteAuthSession$ = sources.clientMessage$.pipe(
     filter((message) => message.type === "SignOutIncoming"),
     withLatestFrom(authStatus$),
     map(
@@ -560,7 +562,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     )
   );
 
-  sources.databaseMessage$.pipe(
+  const unauthenticate$ = sources.databaseMessage$.pipe(
     filter(
       (message): message is DeletedAuthSession =>
         message.type === "DeletedAuthSession" &&
@@ -576,7 +578,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     )
   );
 
-  sources.clientMessage$.pipe(
+  const addQueueEntry$ = sources.clientMessage$.pipe(
     filter((message) => message.type === "EnterQueue"),
     withLatestFrom(authStatus$),
     map(
@@ -599,7 +601,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     )
   );
 
-  sources.clientMessage$.pipe(
+  const removeQueueEntry$ = sources.clientMessage$.pipe(
     filter((message) => message.type === "ExitQueue"),
     withLatestFrom(authStatus$),
     map(
@@ -622,7 +624,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     )
   );
 
-  sources.stateMessage$.pipe(
+  const enteredQueue$ = sources.stateMessage$.pipe(
     withLatestFrom(authStatus$),
     filter(
       ([message, authStatus]) =>
@@ -638,7 +640,7 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     })
   );
 
-  sources.stateMessage$.pipe(
+  const exitedQueue$ = sources.stateMessage$.pipe(
     withLatestFrom(authStatus$),
     filter(
       ([message, authStatus]) =>
@@ -654,119 +656,45 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
     })
   );
 
-  sources.clientMessage$.pipe(
-    filter(
-      (message): message is RegisterIncoming =>
-        message.type === "RegisterIncoming"
-    )
+  const registerEvent$ = register(socketId, sources);
+  const signInWithEmailAndPasswordEvent$ = signInWithEmailAndPassword(
+    socketId,
+    sources
+  );
+  const signInWithAuthSessionTokenEvent$ = signInWithAuthSessionToken(
+    socketId,
+    sources
   );
 
-  const authGuardedEvent$ = sources.clientMessage$.pipe(
-    filter(
-      (
-        message
-      ): message is
-        | RegisterIncoming
-        | SignInWithAuthSessionTokenIncoming
-        | SignInWithEmailAndPasswordIncoming =>
-        message.type === "RegisterIncoming" ||
-        message.type === "SignInWithAuthSessionTokenIncoming" ||
-        message.type === "SignInWithEmailAndPasswordIncoming"
+  const queueLengthUpdated$ = merge(
+    sources.clientMessage$.pipe(
+      filter((message) => message.type === "SubscribeToQueueLength"),
+      mapTo<boolean>(true)
     ),
-    exhaustMap((message): Observable<OutcomingCommand> => {
-      switch (message.type) {
-        case "RegisterIncoming":
-          return from(register(message, sources.db)).pipe(
-            map(
-              (message): OutcomingCommand => ({
-                type: "SendServerMessage",
-                message,
-              })
-            )
-          );
-        case "SignInWithEmailAndPasswordIncoming":
-          return from(signInWithEmailAndPassword(message, sources.db)).pipe(
-            mergeMap((outcoming): Observable<OutcomingCommand> => {
-              switch (outcoming.type) {
-                case "SignInWithEmailAndPasswordError":
-                  return of<OutcomingCommand>({
-                    type: "SendServerMessage",
-                    message: outcoming,
-                  });
-                case "SignInWithEmailAndPasswordSuccess":
-                  return of<OutcomingCommand[]>(
-                    {
-                      type: "SendClientRecurse",
-                      message: {
-                        type: "Authenticate",
-                        userId: outcoming.userId,
-                        userEmail: outcoming.userEmail,
-                        authSessionId: outcoming.authSessionId,
-                      },
-                    },
-                    {
-                      type: "SendServerMessage",
-                      message: {
-                        type: "SignInWithEmailAndPasswordOutcomingSuccess",
-                      },
-                    }
-                  );
-              }
-            })
-          );
-        case "SignInWithAuthSessionTokenIncoming":
-          return from(signInWithAuthSessionToken(message, sources.db)).pipe(
-            mergeMap((outcoming): Observable<OutcomingCommand> => {
-              switch (outcoming.type) {
-                case "SignInWithAuthSessionTokenError":
-                  return of<OutcomingCommand>({
-                    type: "SendServerMessage",
-                    message: outcoming,
-                  });
-                case "SignInWithAuthSessionTokenSuccess":
-                  return of<OutcomingCommand>({
-                    type: "SendClientRecurse",
-                    message: {
-                      type: "Authenticate",
-                      userId: outcoming.userId,
-                      userEmail: outcoming.userEmail,
-                      authSessionId: outcoming.authSessionId,
-                    },
-                  });
-              }
-            })
-          );
-      }
-    })
-  );
-
-  const queueLengthEvent$ = sources.message$.pipe(
-    filter((message) => message.type === "SubscribeToQueueLength"),
-    exhaustMap(() =>
-      sources.stateMessage$.pipe(
-        filter(
-          (stateMessage): stateMessage is QueueLengthUpdated =>
-            stateMessage.type === "QueueLengthUpdated"
-        ),
-        map(
-          (stateMessage): OutcomingCommand => ({
-            type: "SendServerMessage",
-            message: {
-              type: "QueueLengthUpdated",
-              updatedLength: stateMessage.updatedLength,
-            },
-          })
-        ),
-        takeUntil(
-          sources.message$.pipe(
-            filter((message) => message.type === "UnsubscribeFromQueueLength")
-          )
-        )
-      )
+    sources.clientMessage$.pipe(
+      filter((message) => message.type === "UnsubscribeFromQueueLength"),
+      mapTo<boolean>(false)
+    )
+  ).pipe(
+    switchMap((isSubscribedToQueueLength) =>
+      isSubscribedToQueueLength ? sources.stateMessage$ : EMPTY
+    ),
+    filter(
+      (stateMessage): stateMessage is QueueLengthUpdated =>
+        stateMessage.type === "QueueLengthUpdated"
+    ),
+    map(
+      (stateMessage): OutcomingCommand => ({
+        type: "SendServerMessage",
+        message: {
+          type: "QueueLengthUpdated",
+          updatedLength: stateMessage.updatedLength,
+        },
+      })
     )
   );
 
-  const getQueueLength$ = sources.message$.pipe(
+  const getQueueLength$ = sources.clientMessage$.pipe(
     filter(
       (message): message is GetQueueLengthIncoming =>
         message.type === "GetQueueLengthIncoming"
@@ -798,8 +726,17 @@ export function rxSocketProto(sources: Sources): Observable<OutcomingCommand> {
   );
 
   return merge(
-    authGuardedEvent$,
-    queueLengthEvent$,
+    unauthenticate$,
+    addQueueEntry$,
+    removeQueueEntry$,
+    enteredQueue$,
+    exitedQueue$,
+    registerEvent$,
+    signInWithEmailAndPasswordEvent$,
+    signInWithAuthSessionTokenEvent$,
+    authStatusUpdated$,
+    deleteAuthSession$,
+    queueLengthUpdated$,
     getQueueLength$,
     gotQueueLength$
   );
