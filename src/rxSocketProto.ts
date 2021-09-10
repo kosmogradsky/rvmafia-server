@@ -2,24 +2,17 @@ import * as jwt from "jsonwebtoken";
 import * as bcrypt from "bcrypt";
 import * as EmailValidator from "email-validator";
 import {
-  from,
   Observable,
-  of,
   Subject,
   merge,
   EMPTY,
   BehaviorSubject,
 } from "rxjs";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { MongoClient, Db, ObjectId } from "mongodb";
+import { MongoClient } from "mongodb";
 import {
-  exhaustMap,
   filter,
-  mergeMap,
-  takeUntil,
   mapTo,
-  startWith,
-  take,
   map,
   withLatestFrom,
   share,
@@ -28,8 +21,6 @@ import {
 import { StateQuery } from "./StateQuery";
 import {
   GotQueueLength,
-  QueueEntryAdded,
-  QueueEntryRemoved,
   QueueLengthUpdated,
   StateMessage,
 } from "./StateMessage";
@@ -768,22 +759,23 @@ async function mongoMain() {
   //   )
   // );
 
-  const messageSubject = new Subject<ClientMessage>();
-  const message$: Observable<ClientMessage> = messageSubject.asObservable();
+  const clientMessageSubject = new Subject<ClientMessage>();
+  const clientMessage$: Observable<ClientMessage> = clientMessageSubject.asObservable();
 
   rxSocketProto({
-    db,
-    message$,
+    clientMessage$,
+    databaseMessage$: EMPTY,
+    serverInternalMessage$: EMPTY,
     stateMessage$: EMPTY,
   }).subscribe(async (message) => {
     console.log(message);
     console.log(await db.collection("authSessions").find().toArray());
-    messageSubject.next({
+    clientMessageSubject.next({
       type: "SignOutIncoming",
     });
   });
 
-  messageSubject.next({
+  clientMessageSubject.next({
     type: "SignInWithEmailAndPasswordIncoming",
     email: "kosmogradsky@gmail.com",
     password: "1234567",

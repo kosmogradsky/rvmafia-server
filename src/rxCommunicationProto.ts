@@ -4,9 +4,11 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { Subject, Observable } from "rxjs";
 import { Server } from "socket.io";
 import { StateQuery } from "./StateQuery";
-import { ClientMessage, DatabaseMessage, rxSocketProto, ServerInternalMessage } from "./rxSocketProto";
+import { ClientMessage, rxSocketProto } from "./rxSocketProto";
 import { rxStateProto } from "./rxStateProto";
 import { StateMessage } from "./StateMessage";
+import { DatabaseMessage } from "./DatabaseMessage";
+import { ServerInternalMessage } from "./ServerInternalMessage";
 
 async function rxCommunicationProto() {
   const mongoServer = await MongoMemoryServer.create();
