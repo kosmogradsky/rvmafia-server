@@ -42,10 +42,12 @@ async function rxCommunicationProto() {
 
   io.on("connection", (socket) => {
     const clientMessageSubject = new Subject<ClientMessage>();
-    const clientMessage$: Observable<ClientMessage> = clientMessageSubject.asObservable();
+    const clientMessage$: Observable<ClientMessage> =
+      clientMessageSubject.asObservable();
 
     const serverInternalMessageSubject = new Subject<ServerInternalMessage>();
-    const serverInternalMessage$: Observable<ServerInternalMessage> = serverInternalMessageSubject.asObservable();
+    const serverInternalMessage$: Observable<ServerInternalMessage> =
+      serverInternalMessageSubject.asObservable();
 
     socket.on(
       "sign in with email and password",
@@ -121,9 +123,17 @@ async function rxCommunicationProto() {
       serverInternalMessage$,
       stateMessage$,
     }).subscribe((outcomingCommand) => {
-      console.log('OutcomingCommand', outcomingCommand)
+      console.log("OutcomingCommand", outcomingCommand);
 
       switch (outcomingCommand.type) {
+        case "SendDatabaseQuery": {
+          switch (outcomingCommand.query.type) {
+            case "InsertRegisteredUser": {
+              break;
+            }
+          }
+          break;
+        }
         case "SendStateQuery":
           console.log("SendStateQuery", outcomingCommand);
           changeStateRequestSubject.next(outcomingCommand.query);
