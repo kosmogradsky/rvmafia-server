@@ -121,6 +121,8 @@ async function rxCommunicationProto() {
       serverInternalMessage$,
       stateMessage$,
     }).subscribe((outcomingCommand) => {
+      console.log('OutcomingCommand', outcomingCommand)
+
       switch (outcomingCommand.type) {
         case "SendStateQuery":
           console.log("SendStateQuery", outcomingCommand);
