@@ -241,6 +241,10 @@ function signInWithEmailAndPassword(
           userId: message.user._id,
           context: {
             type: "SignInWithEmailAndPassword",
+            user: {
+              id: message.user._id,
+              email: message.user.email
+            }
           },
         },
       };
@@ -310,6 +314,7 @@ function signInWithAuthSessionToken(
           type: "FindAuthSessionById",
           socketId,
           authSessionId,
+          authSessionToken: message.authSessionToken
         },
       };
     })

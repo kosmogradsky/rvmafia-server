@@ -1,5 +1,5 @@
 import * as bcrypt from "bcrypt";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { Subject, Observable } from "rxjs";
 import { Server } from "socket.io";
@@ -129,6 +129,131 @@ async function rxCommunicationProto() {
         case "SendDatabaseQuery": {
           switch (outcomingCommand.query.type) {
             case "InsertRegisteredUser": {
+              const insertRegisteredUser = outcomingCommand.query;
+
+              db.collection("users")
+                .insertOne({
+                  email: insertRegisteredUser.email,
+                  hashedPassword: insertRegisteredUser.hashedPassword,
+                })
+                .then(() => {
+                  databaseMessageSubject.next({
+                    type: "InsertedRegisteredUser",
+                    socketId: insertRegisteredUser.socketId,
+                  });
+                });
+              break;
+            }
+            case "InsertAuthSession": {
+              const insertAuthSession = outcomingCommand.query;
+
+              db.collection("authSessions")
+                .insertOne({
+                  userId: insertAuthSession.userId,
+                })
+                .then((insertedSession) => {
+                  const insertedSessionId =
+                    insertedSession.insertedId.toHexString();
+
+                  databaseMessageSubject.next({
+                    type: "InsertedAuthSession",
+                    socketId: insertAuthSession.socketId,
+                    insertedId: insertedSessionId,
+                    context: {
+                      type: "SignInWithEmailAndPassword",
+                      user: {
+                        id: insertAuthSession.context.user.id,
+                        email: insertAuthSession.context.user.email,
+                      },
+                    },
+                  });
+                });
+              break;
+            }
+            case "FindUserById": {
+              const findUserById = outcomingCommand.query;
+
+              db.collection("users")
+                .findOne({
+                  _id: new ObjectId(findUserById.userId),
+                })
+                .then((userDoc) => {
+                  databaseMessageSubject.next({
+                    type: "FoundUserById",
+                    socketId: findUserById.socketId,
+                    authSessionId: findUserById.authSessionId,
+                    authSessionToken: findUserById.authSessionToken,
+                    userId: findUserById.userId,
+                    user:
+                      userDoc === null
+                        ? undefined
+                        : {
+                            id: userDoc._id,
+                            email: userDoc.email,
+                          },
+                  });
+                });
+              break;
+            }
+            case "FindUserByEmail": {
+              const findUserByEmail = outcomingCommand.query;
+
+              db.collection("users")
+                .findOne({ email: findUserByEmail.email })
+                .then((userDoc) => {
+                  databaseMessageSubject.next({
+                    type: "FoundUserByEmail",
+                    socketId: findUserByEmail.socketId,
+                    context: findUserByEmail.context,
+                    user:
+                      userDoc === null
+                        ? undefined
+                        : {
+                            _id: userDoc._id,
+                            email: userDoc.email,
+                            hashedPassword: userDoc.hashedPassword,
+                          },
+                  });
+                });
+              break;
+            }
+            case "FindAuthSessionById": {
+              const findAuthSessionById = outcomingCommand.query;
+
+              db.collection("authSessions")
+                .findOne({
+                  _id: new Object(findAuthSessionById.authSessionId),
+                })
+                .then((authSessionDoc) => {
+                  databaseMessageSubject.next({
+                    type: "FoundAuthSessionById",
+                    socketId: findAuthSessionById.socketId,
+                    authSessionId: findAuthSessionById.authSessionId,
+                    authSessionToken: findAuthSessionById.authSessionToken,
+                    authSession:
+                      authSessionDoc === null
+                        ? undefined
+                        : {
+                            userId: authSessionDoc.userId,
+                          },
+                  });
+                });
+              break;
+            }
+            case 'DeleteAuthSession': {
+              const deleteAuthSession = outcomingCommand.query;
+
+              db.collection('authSessions').deleteOne({
+                _id: new ObjectId(deleteAuthSession.authSessionId)
+              }).then(() => {
+                databaseMessageSubject.next({
+                  type: 'DeletedAuthSession',
+                  context: {
+                    type: 'SiginingOut',
+                    socketId: deleteAuthSession.context.socketId
+                  }
+                })
+              })
               break;
             }
           }

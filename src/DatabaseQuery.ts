@@ -30,6 +30,10 @@ export interface InsertAuthSession {
   userId: string;
   context: {
     type: "SignInWithEmailAndPassword";
+    user: {
+      id: string;
+      email: string;
+    };
   };
 }
 
@@ -37,6 +41,7 @@ export interface FindAuthSessionById {
   type: 'FindAuthSessionById';
   socketId: string;
   authSessionId: string;
+  authSessionToken: string;
 }
 
 export interface FindUserById {
