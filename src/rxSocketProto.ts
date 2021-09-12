@@ -1,13 +1,7 @@
 import * as jwt from "jsonwebtoken";
 import * as bcrypt from "bcrypt";
 import * as EmailValidator from "email-validator";
-import {
-  Observable,
-  Subject,
-  merge,
-  EMPTY,
-  BehaviorSubject,
-} from "rxjs";
+import { Observable, Subject, merge, EMPTY, BehaviorSubject } from "rxjs";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { MongoClient } from "mongodb";
 import {
@@ -223,6 +217,8 @@ function signInWithEmailAndPassword(
         message.user.hashedPassword
       );
 
+      console.log("isPasswordCorrect", isPasswordCorrect);
+
       if (isPasswordCorrect === false) {
         return {
           type: "SendServerMessage",
@@ -243,8 +239,8 @@ function signInWithEmailAndPassword(
             type: "SignInWithEmailAndPassword",
             user: {
               id: message.user._id,
-              email: message.user.email
-            }
+              email: message.user.email,
+            },
           },
         },
       };
@@ -314,7 +310,7 @@ function signInWithAuthSessionToken(
           type: "FindAuthSessionById",
           socketId,
           authSessionId,
-          authSessionToken: message.authSessionToken
+          authSessionToken: message.authSessionToken,
         },
       };
     })
@@ -435,6 +431,8 @@ function register(
       }
 
       const hashedPassword = bcrypt.hashSync(message.password, 10);
+
+      console.log('registerIncoming', message);
 
       return {
         type: "SendDatabaseQuery",
@@ -765,7 +763,8 @@ async function mongoMain() {
   // );
 
   const clientMessageSubject = new Subject<ClientMessage>();
-  const clientMessage$: Observable<ClientMessage> = clientMessageSubject.asObservable();
+  const clientMessage$: Observable<ClientMessage> =
+    clientMessageSubject.asObservable();
 
   rxSocketProto({
     clientMessage$,

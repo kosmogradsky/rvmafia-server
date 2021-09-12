@@ -185,7 +185,7 @@ async function rxCommunicationProto() {
                     authSessionToken: findUserById.authSessionToken,
                     userId: findUserById.userId,
                     user:
-                      userDoc === null
+                      userDoc === undefined
                         ? undefined
                         : {
                             id: userDoc._id,
@@ -201,12 +201,14 @@ async function rxCommunicationProto() {
               db.collection("users")
                 .findOne({ email: findUserByEmail.email })
                 .then((userDoc) => {
+                  console.log("userDoc", userDoc);
+                  
                   databaseMessageSubject.next({
                     type: "FoundUserByEmail",
                     socketId: findUserByEmail.socketId,
                     context: findUserByEmail.context,
                     user:
-                      userDoc === null
+                      userDoc === undefined
                         ? undefined
                         : {
                             _id: userDoc._id,
@@ -231,7 +233,7 @@ async function rxCommunicationProto() {
                     authSessionId: findAuthSessionById.authSessionId,
                     authSessionToken: findAuthSessionById.authSessionToken,
                     authSession:
-                      authSessionDoc === null
+                      authSessionDoc === undefined
                         ? undefined
                         : {
                             userId: authSessionDoc.userId,
@@ -240,20 +242,22 @@ async function rxCommunicationProto() {
                 });
               break;
             }
-            case 'DeleteAuthSession': {
+            case "DeleteAuthSession": {
               const deleteAuthSession = outcomingCommand.query;
 
-              db.collection('authSessions').deleteOne({
-                _id: new ObjectId(deleteAuthSession.authSessionId)
-              }).then(() => {
-                databaseMessageSubject.next({
-                  type: 'DeletedAuthSession',
-                  context: {
-                    type: 'SiginingOut',
-                    socketId: deleteAuthSession.context.socketId
-                  }
+              db.collection("authSessions")
+                .deleteOne({
+                  _id: new ObjectId(deleteAuthSession.authSessionId),
                 })
-              })
+                .then(() => {
+                  databaseMessageSubject.next({
+                    type: "DeletedAuthSession",
+                    context: {
+                      type: "SiginingOut",
+                      socketId: deleteAuthSession.context.socketId,
+                    },
+                  });
+                });
               break;
             }
           }
