@@ -202,7 +202,7 @@ async function rxCommunicationProto() {
                 .findOne({ email: findUserByEmail.email })
                 .then((userDoc) => {
                   console.log("userDoc", userDoc);
-                  
+
                   databaseMessageSubject.next({
                     type: "FoundUserByEmail",
                     socketId: findUserByEmail.socketId,
@@ -261,6 +261,10 @@ async function rxCommunicationProto() {
               break;
             }
           }
+          break;
+        }
+        case "SendServerInternalMessage": {
+          serverInternalMessageSubject.next(outcomingCommand.message);
           break;
         }
         case "SendStateQuery":
